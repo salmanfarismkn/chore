@@ -4,9 +4,9 @@ import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 
 import { env } from "./config/env";
-import { logger } from "./config/logger";
 
-import { registerRoutes } from "./routes";
+import { registerHealthRoutes } from "./modules/health/health.routes";
+import { registerUserRoutes } from "./modules/users/users.routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -21,7 +21,15 @@ export function buildApp() {
     credentials: true,
   });
 
-  app.register(registerRoutes);
+  // Health Module
+  app.register(registerHealthRoutes, {
+    prefix: "/health",
+  });
+
+  // Users Module
+  app.register(registerUserRoutes, {
+    prefix: "/v1/users",
+  });
 
   return app;
 }
