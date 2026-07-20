@@ -6,3 +6,4 @@ import { env } from "../config/env";
 const client = postgres(env.DATABASE_URL);
 
 export const db = drizzle(client);
+

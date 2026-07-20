@@ -14,5 +14,6 @@ export const env = {
   NODE_ENV: getEnv("NODE_ENV", "development"),
   PORT: Number(getEnv("PORT", "3000")),
   HOST: getEnv("HOST", "0.0.0.0"),
+  DATABASE_URL: getEnv("DATABASE_URL"),
   CORS_ORIGIN: getEnv("CORS_ORIGIN", "*") as string,
 };

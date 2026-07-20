@@ -1,4 +1,5 @@
-export type UserRole = "customer" | "worker";
+export type UserRole = "customer" | "worker" | "admin";
+
 
 export interface CreateUserInput {
   phoneNumber: string;
@@ -7,7 +8,7 @@ export interface CreateUserInput {
 }
 
 export interface UserResponse {
-  id: string;
+  id: number;
   phoneNumber: string;
   fullName: string;
   role: UserRole;
