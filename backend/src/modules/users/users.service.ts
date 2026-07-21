@@ -1,4 +1,7 @@
+import { ConflictError } from "../../shared/core/errors/conflict-error";
+
 import { UsersRepository } from "./users.repository";
+
 import type {
   CreateUserInput,
   UserResponse,
@@ -6,16 +9,21 @@ import type {
 
 export class UsersService {
   constructor(
-    private readonly usersRepository = new UsersRepository()
+    private readonly usersRepository: UsersRepository
   ) {}
 
-  async createUser(data: CreateUserInput): Promise<UserResponse> {
-    const existing = await this.usersRepository.findUserByPhoneNumber(
-      data.phoneNumber
-    );
+  async createUser(
+    data: CreateUserInput
+  ): Promise<UserResponse> {
+    const existing =
+      await this.usersRepository.findUserByPhoneNumber(
+        data.phoneNumber
+      );
 
     if (existing) {
-      throw new Error("USER_ALREADY_EXISTS");
+      throw new ConflictError(
+        "Phone number already exists"
+      );
     }
 
     return this.usersRepository.createUser(data);

@@ -7,12 +7,16 @@ import { env } from "./config/env";
 
 import { registerHealthRoutes } from "./modules/health/health.routes";
 import { registerUserRoutes } from "./modules/users/users.routes";
+import { registerErrorHandler } from "./shared/error-handler";
+import { registerWorkerRoutes } from "./modules/worker/workers.routes";
 
 export function buildApp() {
   const app = Fastify({
     logger: true,
     trustProxy: true,
   });
+
+  registerErrorHandler(app);
 
   app.register(helmet);
 
@@ -29,6 +33,10 @@ export function buildApp() {
   // Users Module
   app.register(registerUserRoutes, {
     prefix: "/v1/users",
+  });
+
+  app.register(registerWorkerRoutes, {
+  prefix: "/v1/workers",
   });
 
   return app;

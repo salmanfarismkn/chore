@@ -1,11 +1,15 @@
 import { FastifyInstance } from "fastify";
 
+import { UsersRepository } from "./users.repository";
 import { UsersService } from "./users.service";
 import { createUserSchema } from "./users.schema";
 
-const usersService = new UsersService();
+export async function registerUserRoutes(
+  server: FastifyInstance
+) {
+  const usersRepository = new UsersRepository();
+  const usersService = new UsersService(usersRepository);
 
-export async function registerUserRoutes(server: FastifyInstance) {
   server.post("/", async (request, reply) => {
     const result = createUserSchema.safeParse(request.body);
 
@@ -16,26 +20,9 @@ export async function registerUserRoutes(server: FastifyInstance) {
       });
     }
 
-    try {
-      const user = await usersService.createUser(result.data);
+    const user = await usersService.createUser(result.data);
 
-      return reply.status(201).send(user);
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "USER_ALREADY_EXISTS"
-      ) {
-        return reply.status(409).send({
-          message: "Phone number already exists",
-        });
-      }
-
-      request.log.error(error);
-
-      return reply.status(500).send({
-        message: "Internal Server Error",
-      });
-    }
+    return reply.status(201).send(user);
   });
 
   server.get("/", async () => {

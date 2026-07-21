@@ -15,23 +15,24 @@ CREATE TABLE "users" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"phone_number" varchar(20) NOT NULL,
 	"full_name" varchar(100) NOT NULL,
-	"email" varchar(255) NOT NULL,
+	"email" varchar(255),
 	"role" "user_role" NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "users_phone_number_unique" UNIQUE("phone_number"),
-	CONSTRAINT "users_email_unique" UNIQUE("email")
+	CONSTRAINT "users_phone_number_unique" UNIQUE("phone_number")
 );
 --> statement-breakpoint
 CREATE TABLE "worker_profiles" (
-	"user_id" integer PRIMARY KEY NOT NULL,
+	"id" serial PRIMARY KEY NOT NULL,
+	"user_id" integer NOT NULL,
 	"bio" text,
-	"average_rating" real DEFAULT 0 NOT NULL,
-	"completed_jobs" integer DEFAULT 0 NOT NULL,
-	"status" "worker_status" NOT NULL,
+	"average_rating" real DEFAULT 0,
+	"completed_jobs" integer DEFAULT 0,
+	"status" "worker_status" DEFAULT 'offline' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "worker_profiles_user_id_unique" UNIQUE("user_id"),
 	CONSTRAINT "worker_profiles_rating_check" CHECK ("worker_profiles"."average_rating" >= 0 AND "worker_profiles"."average_rating" <= 5),
 	CONSTRAINT "worker_profiles_jobs_check" CHECK ("worker_profiles"."completed_jobs" >= 0)
 );

@@ -1,23 +1,27 @@
-import { pgTable, integer, text, real, timestamp, index, check } from "drizzle-orm/pg-core";
+import { pgTable, integer, text, real, timestamp, index, check, serial } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";   
 import { workerStatusEnum } from "./enums";
 
 export const workerProfiles = pgTable(
   "worker_profiles",
   {
-    user_id: integer("user_id").primaryKey().notNull(),
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull().unique(),
 
     bio: text("bio"),
 
-    average_rating: real("average_rating").default(0).notNull(),
-    completed_jobs: integer("completed_jobs").default(0).notNull(),
+    averageRating: real("average_rating").default(0),
+    completedJobs: integer("completed_jobs").default(0),
 
-    status: workerStatusEnum("status").notNull(),
 
-    created_at: timestamp("created_at", { withTimezone: true })
+    status: workerStatusEnum("status")
+    .default("offline")
+    .notNull(),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
-    updated_at: timestamp("updated_at", { withTimezone: true })
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
@@ -25,11 +29,11 @@ export const workerProfiles = pgTable(
     statusIdx: index("worker_profiles_status_idx").on(table.status),
     ratingCheck: check(
       "worker_profiles_rating_check",
-      sql`${table.average_rating} >= 0 AND ${table.average_rating} <= 5`
+      sql`${table.averageRating} >= 0 AND ${table.averageRating} <= 5`
     ),
     jobsCheck: check(
       "worker_profiles_jobs_check",
-      sql`${table.completed_jobs} >= 0`
+      sql`${table.completedJobs} >= 0`
     ),
   })
 );

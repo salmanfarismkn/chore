@@ -1,5 +1,5 @@
 {
-  "id": "286b0d04-acff-4ea5-b630-7faac4c47fe6",
+  "id": "9e130f04-2b6c-4cd4-a8fa-1dc9d10998bc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -134,7 +134,7 @@
           "name": "email",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "role": {
           "name": "role",
@@ -175,13 +175,6 @@
           "columns": [
             "phone_number"
           ]
-        },
-        "users_email_unique": {
-          "name": "users_email_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
         }
       },
       "policies": {},
@@ -192,10 +185,16 @@
       "name": "worker_profiles",
       "schema": "",
       "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
         "user_id": {
           "name": "user_id",
           "type": "integer",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true
         },
         "bio": {
@@ -208,14 +207,14 @@
           "name": "average_rating",
           "type": "real",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "default": 0
         },
         "completed_jobs": {
           "name": "completed_jobs",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "default": 0
         },
         "status": {
@@ -223,7 +222,8 @@
           "type": "worker_status",
           "typeSchema": "public",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'offline'"
         },
         "created_at": {
           "name": "created_at",
@@ -259,7 +259,15 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "worker_profiles_user_id_unique": {
+          "name": "worker_profiles_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "worker_profiles_rating_check": {
