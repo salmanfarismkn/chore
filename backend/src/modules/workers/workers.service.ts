@@ -45,4 +45,29 @@ export class WorkersService {
   async getAllWorkers() {
     return this.workersRepository.findAllWorkers();
   }
+  
+  async updateWorker(
+    id: number,
+    data: Partial<CreateWorkerInput>
+  ) {
+    const worker =
+      await this.workersRepository.findWorkerById(id);
+
+    if (!worker) {
+      throw new NotFoundError("Worker not found");
+    }
+
+    return this.workersRepository.updateWorker(id, data);
+  }
+
+  async deleteWorker(id: number) {
+    const worker =
+      await this.workersRepository.findWorkerById(id);
+
+    if (!worker) {
+      throw new NotFoundError("Worker not found");
+    }
+
+    return this.workersRepository.deleteWorker(id);
+  }
 }

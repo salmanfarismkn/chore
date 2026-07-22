@@ -1,6 +1,7 @@
 export * from "./users";
 export * from "./workerProfiles";
-export * from "./service_categories";
+
+export * from "./serviceCategories";
 export * from "./workerServices";
+
 export * from "./bookings";
-export * from "./enums";

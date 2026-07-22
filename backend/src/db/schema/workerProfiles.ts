@@ -24,6 +24,7 @@ export const workerProfiles = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true,}),
   },
   (table) => ({
     statusIdx: index("worker_profiles_status_idx").on(table.status),

@@ -58,4 +58,28 @@ export class WorkersRepository {
   async findAllWorkers() {
     return db.select().from(workerProfiles);
   }
+  
+  async updateWorker(
+    id: number,
+    data: Partial<CreateWorkerInput>
+  ) {
+    const [worker] = await db
+      .update(workerProfiles)
+      .set(data)
+      .where(eq(workerProfiles.id, id))
+      .returning();
+
+    return worker ?? null;
+  }
+
+  async deleteWorker(id: number) {
+    const [worker] = await db
+      .update(workerProfiles)
+      .set({
+      deletedAt: new Date(),
+      })
+      .where(eq(workerProfiles.id, id));
+
+    return worker ?? null;
+  }
 }

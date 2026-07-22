@@ -59,4 +59,30 @@ export async function registerWorkerRoutes(
 
     return worker;
   });
+  server.patch("/:id", async (request, reply) => {
+    const { id } = request.params as {
+        id: string;
+    };
+
+    const worker =
+        await workersService.updateWorker(
+            Number(id),
+            request.body as any
+        );
+
+    return reply.send(worker);
+  });
+  
+  server.delete("/:id", async (request, reply) => {
+    const { id } = request.params as {
+        id: string;
+    };
+
+    const worker =
+        await workersService.deleteWorker(
+            Number(id)
+        );
+
+    return reply.send(worker);
+  });
 }

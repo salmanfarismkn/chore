@@ -8,7 +8,9 @@ import { env } from "./config/env";
 import { registerHealthRoutes } from "./modules/health/health.routes";
 import { registerUserRoutes } from "./modules/users/users.routes";
 import { registerErrorHandler } from "./shared/error-handler";
-import { registerWorkerRoutes } from "./modules/worker/workers.routes";
+import { registerWorkerRoutes } from "./modules/workers/workers.routes";
+import { registerServiceRoutes } from "./modules/service-categories/services.routes";
+import { registerWorkerServiceRoutes } from "./modules/worker-services/worker-services.routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -38,6 +40,14 @@ export function buildApp() {
   app.register(registerWorkerRoutes, {
   prefix: "/v1/workers",
   });
+ 
 
+  app.register(registerServiceRoutes, {
+    prefix: "/v1/services",
+  });
+
+  app.register(registerWorkerServiceRoutes, {
+    prefix: "/v1/worker-services",
+  });
   return app;
 }
