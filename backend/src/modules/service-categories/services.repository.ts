@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { db } from "../../db";
-import { service_categories } from "../../db/schema";
+import { serviceCategories } from "../../db/schema";
 
 import type {
   CreateServiceInput,
@@ -13,7 +13,7 @@ export class ServicesRepository {
     data: CreateServiceInput
   ): Promise<ServiceResponse> {
     const [service] = await db
-      .insert(service_categories)
+      .insert(serviceCategories)
       .values({
         name: data.name,
         description: data.description ?? null,
@@ -38,8 +38,8 @@ export class ServicesRepository {
   async findServiceById(id: number) {
     const [service] = await db
       .select()
-      .from(service_categories)
-      .where(eq(service_categories.id, id));
+      .from(serviceCategories)
+      .where(eq(serviceCategories.id, id));
 
     if (!service) return null;
 
@@ -57,8 +57,8 @@ export class ServicesRepository {
   async findServiceByName(name: string) {
     const [service] = await db
       .select()
-      .from(service_categories)
-      .where(eq(service_categories.name, name));
+      .from(serviceCategories)
+      .where(eq(serviceCategories.name, name));
 
     if (!service) return null;
 
@@ -74,7 +74,7 @@ export class ServicesRepository {
   }
 
   async findAllServices() {
-    const services = await db.select().from(service_categories);
+    const services = await db.select().from(serviceCategories);
 
     return services.map((s) => ({
       id: s.id,

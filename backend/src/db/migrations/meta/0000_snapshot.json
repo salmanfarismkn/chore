@@ -1,5 +1,5 @@
 {
-  "id": "9e130f04-2b6c-4cd4-a8fa-1dc9d10998bc",
+  "id": "2987380c-40f5-43d8-a25c-d44a607199a7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -238,6 +238,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -351,6 +357,12 @@
       "name": "worker_services",
       "schema": "",
       "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
         "worker_id": {
           "name": "worker_id",
           "type": "integer",
@@ -363,17 +375,37 @@
           "primaryKey": false,
           "notNull": true
         },
+        "price": {
+          "name": "price",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
-        "worker_services_worker_category_idx": {
-          "name": "worker_services_worker_category_idx",
+        "worker_service_unique": {
+          "name": "worker_service_unique",
           "columns": [
             {
               "expression": "worker_id",
@@ -388,6 +420,36 @@
               "nulls": "last"
             }
           ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worker_services_worker_idx": {
+          "name": "worker_services_worker_idx",
+          "columns": [
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worker_services_service_idx": {
+          "name": "worker_services_service_idx",
+          "columns": [
+            {
+              "expression": "service_category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
@@ -395,15 +457,7 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "worker_services_worker_id_service_category_id_pk": {
-          "name": "worker_services_worker_id_service_category_id_pk",
-          "columns": [
-            "worker_id",
-            "service_category_id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

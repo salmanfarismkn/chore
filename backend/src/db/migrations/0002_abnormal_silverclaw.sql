@@ -1,2 +1,0 @@
-ALTER TABLE "worker_services" ADD COLUMN "id" serial PRIMARY KEY NOT NULL;--> statement-breakpoint
-ALTER TABLE "worker_services" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;

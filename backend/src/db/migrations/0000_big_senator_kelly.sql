@@ -32,6 +32,7 @@ CREATE TABLE "worker_profiles" (
 	"status" "worker_status" DEFAULT 'offline' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone,
 	CONSTRAINT "worker_profiles_user_id_unique" UNIQUE("user_id"),
 	CONSTRAINT "worker_profiles_rating_check" CHECK ("worker_profiles"."average_rating" >= 0 AND "worker_profiles"."average_rating" <= 5),
 	CONSTRAINT "worker_profiles_jobs_check" CHECK ("worker_profiles"."completed_jobs" >= 0)
@@ -50,14 +51,19 @@ CREATE TABLE "service_categories" (
 );
 --> statement-breakpoint
 CREATE TABLE "worker_services" (
+	"id" serial PRIMARY KEY NOT NULL,
 	"worker_id" integer NOT NULL,
 	"service_category_id" integer NOT NULL,
+	"price" numeric(10, 2) NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
-	CONSTRAINT "worker_services_worker_id_service_category_id_pk" PRIMARY KEY("worker_id","service_category_id")
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX "bookings_customer_id_idx" ON "bookings" USING btree ("customer_id");--> statement-breakpoint
 CREATE INDEX "bookings_status_idx" ON "bookings" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "bookings_scheduled_at_idx" ON "bookings" USING btree ("scheduled_at");--> statement-breakpoint
 CREATE INDEX "worker_profiles_status_idx" ON "worker_profiles" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "worker_services_worker_category_idx" ON "worker_services" USING btree ("worker_id","service_category_id");
+CREATE UNIQUE INDEX "worker_service_unique" ON "worker_services" USING btree ("worker_id","service_category_id");--> statement-breakpoint
+CREATE INDEX "worker_services_worker_idx" ON "worker_services" USING btree ("worker_id");--> statement-breakpoint
+CREATE INDEX "worker_services_service_idx" ON "worker_services" USING btree ("service_category_id");
