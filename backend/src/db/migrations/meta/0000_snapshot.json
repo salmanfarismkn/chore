@@ -1,5 +1,5 @@
 {
-  "id": "2987380c-40f5-43d8-a25c-d44a607199a7",
+  "id": "25a270c5-4655-4972-8d40-0331f84074ad",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -20,8 +20,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "worker_service_id": {
-          "name": "worker_service_id",
+        "worker_id": {
+          "name": "worker_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_category_id": {
+          "name": "service_category_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
@@ -38,6 +44,24 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "estimated_price": {
+          "name": "estimated_price",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "final_price": {
+          "name": "final_price",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp": {
+          "name": "otp",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -70,6 +94,21 @@
           "method": "btree",
           "with": {}
         },
+        "bookings_worker_id_idx": {
+          "name": "bookings_worker_id_idx",
+          "columns": [
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "bookings_status_idx": {
           "name": "bookings_status_idx",
           "columns": [
@@ -90,6 +129,21 @@
           "columns": [
             {
               "expression": "scheduled_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bookings_service_category_id_idx": {
+          "name": "bookings_service_category_id_idx",
+          "columns": [
+            {
+              "expression": "service_category_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

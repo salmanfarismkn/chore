@@ -19,6 +19,7 @@ export const workerStatusEnum = pgEnum("worker_status", [
 export const bookingStatusEnum = pgEnum("booking_status", [
   "pending",
   "accepted",
+  "assigned",
   "en_route",
   "working",
   "completed",

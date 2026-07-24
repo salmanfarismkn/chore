@@ -1,12 +1,16 @@
-CREATE TYPE "public"."booking_status" AS ENUM('pending', 'accepted', 'en_route', 'working', 'completed', 'cancelled');--> statement-breakpoint
+CREATE TYPE "public"."booking_status" AS ENUM('pending', 'accepted', 'assigned', 'en_route', 'working', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."user_role" AS ENUM('customer', 'worker', 'admin');--> statement-breakpoint
 CREATE TYPE "public"."worker_status" AS ENUM('offline', 'available', 'busy', 'suspended');--> statement-breakpoint
 CREATE TABLE "bookings" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"customer_id" integer NOT NULL,
-	"worker_service_id" integer NOT NULL,
+	"worker_id" integer,
+	"service_category_id" integer NOT NULL,
 	"status" "booking_status" NOT NULL,
 	"scheduled_at" timestamp with time zone NOT NULL,
+	"estimated_price" numeric(10, 2),
+	"final_price" numeric(10, 2),
+	"otp" varchar(10),
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -61,8 +65,10 @@ CREATE TABLE "worker_services" (
 );
 --> statement-breakpoint
 CREATE INDEX "bookings_customer_id_idx" ON "bookings" USING btree ("customer_id");--> statement-breakpoint
+CREATE INDEX "bookings_worker_id_idx" ON "bookings" USING btree ("worker_id");--> statement-breakpoint
 CREATE INDEX "bookings_status_idx" ON "bookings" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "bookings_scheduled_at_idx" ON "bookings" USING btree ("scheduled_at");--> statement-breakpoint
+CREATE INDEX "bookings_service_category_id_idx" ON "bookings" USING btree ("service_category_id");--> statement-breakpoint
 CREATE INDEX "worker_profiles_status_idx" ON "worker_profiles" USING btree ("status");--> statement-breakpoint
 CREATE UNIQUE INDEX "worker_service_unique" ON "worker_services" USING btree ("worker_id","service_category_id");--> statement-breakpoint
 CREATE INDEX "worker_services_worker_idx" ON "worker_services" USING btree ("worker_id");--> statement-breakpoint

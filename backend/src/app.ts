@@ -11,6 +11,7 @@ import { registerErrorHandler } from "./shared/error-handler";
 import { registerWorkerRoutes } from "./modules/workers/workers.routes";
 import { registerServiceRoutes } from "./modules/service-categories/services.routes";
 import { registerWorkerServiceRoutes } from "./modules/worker-services/worker-services.routes";
+import { registerBookingRoutes } from "./modules/bookings/bookings.routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -48,6 +49,10 @@ export function buildApp() {
 
   app.register(registerWorkerServiceRoutes, {
     prefix: "/v1/worker-services",
+  });
+
+  app.register(registerBookingRoutes, {
+    prefix: "/v1/bookings",
   });
   return app;
 }
