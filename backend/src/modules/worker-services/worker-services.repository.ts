@@ -139,4 +139,29 @@ export class WorkerServicesRepository {
 
     return workerService ?? null;
   }
+
+  async findAvailableWorkersForService(
+    serviceCategoryId: number
+  ) {
+    return db
+      .select({
+        workerId: workerProfiles.id,
+        price: workerServices.price,
+        averageRating: workerProfiles.averageRating,
+        completedJobs: workerProfiles.completedJobs,
+        status: workerProfiles.status,
+      })
+      .from(workerServices)
+      .innerJoin(
+        workerProfiles,
+        eq(workerServices.workerId, workerProfiles.id)
+      )
+      .where(
+        and(
+          eq(workerServices.serviceCategoryId, serviceCategoryId),
+          eq(workerServices.isActive, true)
+        )
+      );
+  }
+
 }

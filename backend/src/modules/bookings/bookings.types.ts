@@ -25,3 +25,8 @@ export interface BookingResponse {
   updatedAt: Date;
 }
 
+import type { AllocationCandidate } from "../allocation/allocation.types";
+
+export interface BookingWithCandidatesResponse extends BookingResponse {
+  candidates: AllocationCandidate[];
+}
