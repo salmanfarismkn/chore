@@ -37,31 +37,19 @@ export async function registerBookingRoutes(
       });
     }
 
-    const bookingData = {
-      ...parsed.data,
-      estimatedPrice: 0,
-    };
-
     const booking =
       await bookingsService.createBooking(
-        bookingData
+        parsed.data
       );
 
     return reply.status(201).send(booking);
   });
 
-  app.get("/:id", async (request) => {
-    const { id } =
-      request.params as { id: string };
-
-    return bookingsService.getBooking(
-      Number(id)
-    );
-  });
-
   app.get("/customer/:customerId", async (request) => {
     const { customerId } =
-      request.params as { customerId: string };
+      request.params as {
+        customerId: string;
+      };
 
     return bookingsService.getCustomerBookings(
       Number(customerId)
@@ -70,10 +58,23 @@ export async function registerBookingRoutes(
 
   app.get("/worker/:workerId", async (request) => {
     const { workerId } =
-      request.params as { workerId: string };
+      request.params as {
+        workerId: string;
+      };
 
     return bookingsService.getWorkerBookings(
       Number(workerId)
+    );
+  });
+
+  app.get("/:id", async (request) => {
+    const { id } =
+      request.params as {
+        id: string;
+      };
+
+    return bookingsService.getBooking(
+      Number(id)
     );
   });
 }
