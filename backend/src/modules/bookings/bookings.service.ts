@@ -13,13 +13,12 @@ export class BookingsService {
   constructor(
     private readonly bookingsRepository: BookingsRepository,
     private readonly usersRepository: UsersRepository,
-    private readonly servicesRepository: ServicesRepository,
-    private readonly allocationService: any
+    private readonly servicesRepository: ServicesRepository
   ) {}
 
   async createBooking(
     data: CreateBookingInput
-  ): Promise<BookingResponse & { candidates: unknown[] }> {
+  ): Promise<BookingResponse> {
     const customer =
       await this.usersRepository.findUserById(
         data.customerId
@@ -39,19 +38,11 @@ export class BookingsService {
         "Service category not found"
       );
     }
-    const booking = await this.bookingsRepository.createBooking({
+
+    return this.bookingsRepository.createBooking({
       ...data,
       estimatedPrice: Number(service.basePrice),
     });
-
-    const candidates = await this.allocationService.allocate(
-      booking.serviceCategoryId
-    );
-
-    return {
-      ...booking,
-      candidates,
-    };
   }
 
   async getBooking(id: number) {

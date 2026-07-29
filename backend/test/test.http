@@ -1,0 +1,21 @@
+### Create a Plumbing service
+POST http://localhost:3000/v1/service_categories
+Content-Type: application/json
+
+{
+  "name": "Plumbing",
+  "description": "Fix leaks and pipes",
+  "basePrice": 500,
+  "estimatedDurationMinutes": 60
+}
+
+### Create a Cleaning service
+POST http://localhost:3000/v1/service_categories
+Content-Type: application/json
+
+{
+  "name": "Cleaning",
+  "description": "House cleaning service",
+  "basePrice": 800,
+  "estimatedDurationMinutes": 120
+}
