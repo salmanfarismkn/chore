@@ -41,6 +41,12 @@ export class BookingsRepository {
     return booking ?? null;
   }
 
+  async findAllBookings() {
+    return db
+      .select()
+      .from(bookings);
+  }
+
   async findCustomerBookings(customerId: number) {
     return db
       .select()

@@ -6,6 +6,8 @@ import { createBookingSchema } from "./bookings.schema";
 
 import { UsersRepository } from "../users/users.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
+import { AllocationRepository } from "../allocation/allocation.repository";
+import { AllocationService } from "../allocation/allocation.service";
 
 export async function registerBookingRoutes(
   app: FastifyInstance
@@ -19,12 +21,15 @@ export async function registerBookingRoutes(
   const servicesRepository =
     new ServicesRepository();
 
-  const bookingsService =
-    new BookingsService(
-      bookingsRepository,
-      usersRepository,
-      servicesRepository
-    );
+  const allocationRepository = new AllocationRepository();
+  const allocationService = new AllocationService(allocationRepository);
+
+  const bookingsService = new BookingsService(
+    bookingsRepository,
+    usersRepository,
+    servicesRepository,
+    allocationService
+  );
 
   app.post("/", async (request, reply) => {
     const parsed =
@@ -37,12 +42,21 @@ export async function registerBookingRoutes(
       });
     }
 
+    const bookingData = {
+      ...parsed.data,
+      estimatedPrice: 0,
+    };
+
     const booking =
       await bookingsService.createBooking(
-        parsed.data
+        bookingData
       );
 
     return reply.status(201).send(booking);
+  });
+
+  app.get("/", async () => {
+    return bookingsService.getAllBookings();
   });
 
   app.get("/customer/:customerId", async (request) => {

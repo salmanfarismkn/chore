@@ -1,5 +1,8 @@
+import type { AllocationCandidate } from "../allocation/allocation.types";
+
+
 export interface CreateBookingInput {
-  customerId: number;
+  customerId: number;    
   serviceCategoryId: number;  
   scheduledAt: Date;
   estimatedPrice: number;     
@@ -10,14 +13,14 @@ export interface BookingResponse {
   customerId: number;
   workerId: number | null;
   serviceCategoryId: number;
-  status:
-    | "pending"
-    | "allocating"
-    | "assigned"
-    | "en_route"
-    | "working"
-    | "completed"
-    | "cancelled";             
+  status: 
+    | "PENDING" 
+    | "ALLOCATING" 
+    | "ASSIGNED" 
+    | "EN_ROUTE" 
+    | "WORKING" 
+    | "COMPLETED" 
+    | "CANCELLED";
   estimatedPrice: number;
   finalPrice: number | null;
   otp: string | null;
@@ -25,8 +28,8 @@ export interface BookingResponse {
   updatedAt: Date;
 }
 
-import type { AllocationCandidate } from "../allocation/allocation.types";
-
 export interface BookingWithCandidatesResponse extends BookingResponse {
-  candidates: AllocationCandidate[];
+  allocation: {
+    candidates: AllocationCandidate[];
+  };
 }
