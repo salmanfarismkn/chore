@@ -3,22 +3,25 @@ import { NotFoundError } from "../../shared/core/errors/not-found-error";
 import { BookingsRepository } from "./bookings.repository";
 import { UsersRepository } from "../users/users.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
+import { AllocationService } from "../allocation/allocation.service";
 
 import type {
   BookingResponse,
   CreateBookingInput,
+  BookingWithCandidatesResponse,
 } from "./bookings.types";
 
 export class BookingsService {
   constructor(
     private readonly bookingsRepository: BookingsRepository,
     private readonly usersRepository: UsersRepository,
-    private readonly servicesRepository: ServicesRepository
+    private readonly servicesRepository: ServicesRepository,
+    private readonly allocationService: AllocationService
   ) {}
 
   async createBooking(
     data: CreateBookingInput
-  ): Promise<BookingResponse> {
+  ): Promise<BookingWithCandidatesResponse> {
     const customer =
       await this.usersRepository.findUserById(
         data.customerId
@@ -39,10 +42,25 @@ export class BookingsService {
       );
     }
 
-    return this.bookingsRepository.createBooking({
+    const booking = await this.bookingsRepository.createBooking({
       ...data,
       estimatedPrice: Number(service.basePrice),
     });
+
+    // 4. Call AllocationService
+    const rankedCandidates = await this.allocationService.allocate(data.serviceCategoryId);
+
+    // 5. Return booking + ranked candidates
+    return {
+      ...booking,
+      allocation: {
+        candidates: rankedCandidates,
+      },
+    };
+  }
+
+  async getAllBookings() {
+    return this.bookingsRepository.findAllBookings();
   }
 
   async getBooking(id: number) {

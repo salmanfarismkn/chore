@@ -19,3 +19,14 @@ Content-Type: application/json
   "basePrice": 800,
   "estimatedDurationMinutes": 120
 }
+
+### Create a Booking
+POST http://localhost:3000/v1/bookings
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "serviceCategoryId": 1,
+  "scheduledAt": "2026-08-13T17:00:00",
+  "estimatedPrice": 0
+}
