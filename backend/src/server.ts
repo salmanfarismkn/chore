@@ -1,9 +1,11 @@
 import { buildApp } from "./app";
 import { env } from "./config/env";
+import { connectRedis } from "./config/redis";
 
 async function start() {
   const app = buildApp();
-
+  await connectRedis();
+  
   try {
     await app.listen({
       port: env.PORT,

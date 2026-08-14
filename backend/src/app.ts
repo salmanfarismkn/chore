@@ -12,6 +12,7 @@ import { registerWorkerRoutes } from "./modules/workers/workers.routes";
 import { registerServiceRoutes } from "./modules/service-categories/services.routes";
 import { registerWorkerServiceRoutes } from "./modules/worker-services/worker-services.routes";
 import { registerBookingRoutes } from "./modules/bookings/bookings.routes";
+import { registerAllocationRoutes } from "./modules/allocation/allocation.routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -54,5 +55,10 @@ export function buildApp() {
   app.register(registerBookingRoutes, {
     prefix: "/v1/bookings",
   });
+
+  app.register(registerAllocationRoutes, {
+    prefix: "/v1/allocation"
+  });
+  
   return app;
 }

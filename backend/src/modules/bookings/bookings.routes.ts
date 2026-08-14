@@ -9,6 +9,7 @@ import { ServicesRepository } from "../service-categories/services.repository";
 import { AllocationRepository } from "../allocation/allocation.repository";
 import { AllocationService } from "../allocation/allocation.service";
 
+
 export async function registerBookingRoutes(
   app: FastifyInstance
 ) {
@@ -86,6 +87,7 @@ export async function registerBookingRoutes(
       request.params as {
         id: string;
       };
+      
 
     return bookingsService.getBooking(
       Number(id)
