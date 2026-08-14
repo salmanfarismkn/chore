@@ -1,6 +1,14 @@
-import { allocationWeights, allocationTiers } from "../../config/allocation";
+import { allocationWeights, allocationConfig } from "../../config/allocation";
 import type { AllocationCandidate } from "./allocation.types";
 import { AllocationRepository } from "./allocation.repository";
+import { AllocationLockService } from "./allocation-lock.service";
+
+
+export interface AllocationTier {
+  name: string;
+  candidates: (AllocationCandidate & { score: number })[];
+  timeoutSeconds: number;
+}
 
 export class AllocationService {
   constructor(private readonly allocationRepository: AllocationRepository) {}
@@ -11,6 +19,7 @@ export class AllocationService {
       candidate.completedJobs * allocationWeights.completedJobs
     );
   }
+  private lockService = new AllocationLockService();
 
   async allocate(serviceCategoryId: number): Promise<(AllocationCandidate & { score: number })[]> {
     const candidates = await this.allocationRepository.findCandidates(serviceCategoryId);
@@ -33,32 +42,46 @@ export class AllocationService {
       .sort((a, b) => b.score - a.score);
   }
 
-  async allocateWithTiers(serviceCategoryId: number): Promise<{
-    tier1: (AllocationCandidate & { score: number })[];
-    tier2: (AllocationCandidate & { score: number })[];
-    tier3: (AllocationCandidate & { score: number })[];
-    remaining: (AllocationCandidate & { score: number })[];
-  }> {
-    const rankedCandidates = await this.allocate(serviceCategoryId);
+  async createTiers(serviceCategoryId: number): Promise<AllocationTier[]> {
+    const candidates = await this.allocate(serviceCategoryId);
 
-    const tier1 = rankedCandidates.slice(0, allocationTiers.tier1.candidateCount);
-    const tier2 = rankedCandidates.slice(
-      allocationTiers.tier1.candidateCount,
-      allocationTiers.tier1.candidateCount + allocationTiers.tier2.candidateCount
-    );
-    const tier3 = rankedCandidates.slice(
-      allocationTiers.tier1.candidateCount + allocationTiers.tier2.candidateCount,
-      allocationTiers.tier1.candidateCount + allocationTiers.tier2.candidateCount + allocationTiers.tier3.candidateCount
-    );
-    const remaining = rankedCandidates.slice(
-      allocationTiers.tier1.candidateCount + allocationTiers.tier2.candidateCount + allocationTiers.tier3.candidateCount
-    );
+    const tiers: AllocationTier[] = [];
+    let startIndex = 0;
 
+    for (const config of allocationConfig.tiers) {
+      const tierCandidates = candidates.slice(startIndex, startIndex + config.candidateCount);
+
+      if (tierCandidates.length === 0) {
+        break; // stop if no candidates left
+      }
+
+      tiers.push({
+        name: config.name,
+        candidates: tierCandidates,
+        timeoutSeconds: config.timeoutSeconds,
+      });
+
+      startIndex += config.candidateCount;
+    }
+
+    return tiers;
+  }
+
+  async createOffer(bookingId: number, workerId: number, tier: number, ttlSeconds: number) {
+    const acquired = await this.lockService.acquire(bookingId, workerId, ttlSeconds);
+
+    if (!acquired) {
+      return { message: "Offer could not be created", status: "failed" };
+    }
+
+    // Persist offer in DB or memory
     return {
-      tier1,
-      tier2,
-      tier3,
-      remaining,
+      bookingId,
+      workerId,
+      tier,
+      status: "pending",
+      ttl: ttlSeconds,
+      message: "Offer created"
     };
   }
 }
