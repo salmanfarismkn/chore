@@ -11,3 +11,9 @@ export interface AllocationCandidate {
 
   score: number;
 }
+
+export interface AllocationTier {
+  name: string; 
+  candidates: AllocationCandidate[]; 
+  timeoutSeconds: number; 
+}

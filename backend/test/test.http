@@ -34,8 +34,8 @@ Content-Type: application/json
   "estimatedPrice": 0
 }
 
-###booking 2
-POST http://localhost:3000/v1/allocation/bookings/2/offer
+### create offer
+POST http://localhost:3000/v1/allocation/bookings/1/offer
 Content-Type: application/json
 
 {
@@ -43,10 +43,27 @@ Content-Type: application/json
   "tier": "tier1",
   "ttlSeconds": 5
 }
-### test
+###
 POST http://localhost:3000/v1/allocation/bookings/1/accept
 Content-Type: application/json
 
 {
   "workerId": 10
+}
+
+###
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "workerId": 20,
+  "tier": "tier2",
+  "ttlSeconds": 5
+}
+
+###
+POST http://localhost:3000/v1/allocation/bookings/1/accept
+Content-Type: application/json
+{
+  "workerId": 5
 }

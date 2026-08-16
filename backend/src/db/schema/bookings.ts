@@ -23,6 +23,8 @@ export const bookings = pgTable(
 
     status: bookingStatusEnum("status").notNull(),
 
+    allocationTier: integer("allocation_tier").default(1).notNull(),
+
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
 
     estimatedPrice: numeric("estimated_price", {

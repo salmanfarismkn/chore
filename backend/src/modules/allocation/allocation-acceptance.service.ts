@@ -1,12 +1,6 @@
 import { redis } from "../../config/redis";
-import { AllocationLockService } from "./allocation-lock.service";
 
 export class AllocationAcceptanceService {
-  constructor(
-    private readonly lockService =
-      new AllocationLockService()
-  ) {}
-
   async accept(
     bookingId: number,
     workerId: number
@@ -14,44 +8,69 @@ export class AllocationAcceptanceService {
     const offerKey =
       `booking:${bookingId}:offer`;
 
-    const offer =
-      await redis.hGetAll(offerKey);
+    const lockKey =
+      `booking:${bookingId}:allocation`;
 
-    if (!offer.bookingId) {
-      return false;
-    }
+    const result = await redis.eval(
+      `
+        local offerWorker =
+          redis.call("HGET", KEYS[1], "workerId")
 
-    if (
-      Number(offer.workerId) !== workerId
-    ) {
-      return false;
-    }
+        local status =
+          redis.call("HGET", KEYS[1], "status")
 
-    if (offer.status !== "pending") {
-      return false;
-    }
+        local lockWorker =
+          redis.call("GET", KEYS[2])
 
-    const expiresAt =
-      new Date(offer.expiresAt);
+        if not offerWorker then
+          return 0
+        end
 
-    if (expiresAt.getTime() <= Date.now()) {
-      return false;
-    }
+        if status ~= "pending" then
+          return 0
+        end
 
-    const lockWorker =
-      await this.lockService.getWorker(
-        bookingId
-      );
+        if offerWorker ~= ARGV[1] then
+          return 0
+        end
 
-    if (lockWorker !== workerId) {
-      return false;
-    }
+        if lockWorker ~= ARGV[1] then
+          return 0
+        end
 
-    await redis.hSet(
-      offerKey,
-      "status",
-      "accepted"
+        redis.call(
+          "HSET",
+          KEYS[1],
+          "status",
+          "accepted"
+        )
+
+        return 1
+      `,
+      {
+        keys: [offerKey, lockKey],
+        arguments: [workerId.toString()],
+      }
     );
+
+    return result === 1;
+  }
+  
+  async releaseLock(
+    bookingId: number,
+    workerId: number
+  ) {
+    const lockKey =
+      `booking:${bookingId}:allocation`;
+
+    const currentWorker =
+      await redis.get(lockKey);
+
+    if (currentWorker !== workerId.toString()) {
+      return false;
+    }
+
+    await redis.del(lockKey);
 
     return true;
   }

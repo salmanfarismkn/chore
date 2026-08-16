@@ -18,7 +18,8 @@ export class BookingsRepository {
         customerId: data.customerId,
         workerId: null,
         serviceCategoryId: data.serviceCategoryId,
-        status: "pending",
+        status: "PENDING",
+        allocationTier: 1,
         scheduledAt: data.scheduledAt,
         estimatedPrice: data.estimatedPrice.toString(),
         finalPrice: null,
@@ -26,10 +27,19 @@ export class BookingsRepository {
       })
       .returning();
 
-    return {
-      ...booking,
-      estimatedPrice: Number(booking.estimatedPrice),
-    } as BookingResponse;
+  return {
+    id: booking.id,
+    customerId: booking.customerId,
+    workerId: booking.workerId,
+    serviceCategoryId: booking.serviceCategoryId,
+    status: booking.status.toUpperCase() as BookingResponse["status"],
+    allocationTier: booking.allocationTier,
+    estimatedPrice: Number(booking.estimatedPrice),
+    finalPrice: booking.finalPrice ? Number(booking.finalPrice) : null,
+    otp: booking.otp,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt,
+  };
   }
 
   async findBookingById(id: number) {
@@ -69,7 +79,7 @@ export class BookingsRepository {
       .update(bookings)
       .set({
         workerId,
-        status: "assigned",
+        status: "ASSIGNED",
       })
       .where(eq(bookings.id, bookingId))
       .returning();
@@ -80,12 +90,13 @@ export class BookingsRepository {
   async updateBookingStatus(
     bookingId: number,
     status:
-      | "pending"
-      | "assigned"
-      | "en_route"
-      | "working"
-      | "completed"
-      | "cancelled"
+      | "PENDING"
+      | "ALLOCATING"
+      | "ASSIGNED"
+      | "EN_ROUTE"
+      | "WORKING"
+      | "COMPLETED"
+      | "CANCELLED"
   ) {
     const [booking] = await db
       .update(bookings)
@@ -93,6 +104,63 @@ export class BookingsRepository {
         status,
       })
       .where(eq(bookings.id, bookingId))
+      .returning();
+
+    return booking ?? null;
+  }
+
+  async assignWorker(
+    bookingId: number,
+    workerId: number
+  ) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        workerId,
+        status: "ASSIGNED",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.status, "ALLOCATING")
+        )
+      )
+      .returning();
+
+    return booking ?? null;
+  }
+  async getAllocationState(bookingId: number) {
+    const [booking] = await db
+      .select({
+        id: bookings.id,
+        serviceCategoryId: bookings.serviceCategoryId,
+        workerId: bookings.workerId,
+        status: bookings.status,
+        allocationTier: bookings.allocationTier,
+      })
+      .from(bookings)
+      .where(eq(bookings.id, bookingId));
+
+    return booking ?? null;
+  }
+
+  async moveToNextAllocationTier(
+    bookingId: number,
+    nextTier: number
+  ) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        allocationTier: nextTier,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.status, "ALLOCATING")
+        )
+      )
       .returning();
 
     return booking ?? null;
