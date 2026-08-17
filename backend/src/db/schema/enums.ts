@@ -17,11 +17,12 @@ export const workerStatusEnum = pgEnum("worker_status", [
 
 // Booking status
 export const bookingStatusEnum = pgEnum("booking_status", [
-  "pending",
-  "accepted",
-  "assigned",
-  "en_route",
-  "working",
-  "completed",
-  "cancelled",
+  "PENDING",
+  "ALLOCATING",
+  "ASSIGNED",
+  "EN_ROUTE",
+  "WORKING",
+  "COMPLETED",
+  "CANCELLED",
 ]);
+

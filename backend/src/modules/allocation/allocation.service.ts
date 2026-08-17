@@ -49,10 +49,13 @@ export class AllocationService {
     let startIndex = 0;
 
     for (const config of allocationConfig.tiers) {
-      const tierCandidates = candidates.slice(startIndex, startIndex + config.candidateCount);
+      const tierCandidates = candidates.slice(
+        startIndex,
+        startIndex + config.candidateCount
+      );
 
       if (tierCandidates.length === 0) {
-        break; // stop if no candidates left
+        break;
       }
 
       tiers.push({
@@ -67,6 +70,10 @@ export class AllocationService {
     return tiers;
   }
 
+  getTier(tiers: AllocationTier[], tierNumber: number): AllocationTier | null {
+    return tiers[tierNumber - 1] ?? null;
+  }
+
   async createOffer(bookingId: number, workerId: number, tier: number, ttlSeconds: number) {
     const acquired = await this.lockService.acquire(bookingId, workerId, ttlSeconds);
 
@@ -74,7 +81,6 @@ export class AllocationService {
       return { message: "Offer could not be created", status: "failed" };
     }
 
-    // Persist offer in DB or memory
     return {
       bookingId,
       workerId,
@@ -83,5 +89,25 @@ export class AllocationService {
       ttl: ttlSeconds,
       message: "Offer created"
     };
+  }
+
+  async moveToNextTier(
+    bookingId: number,
+    serviceCategoryId: number,
+    currentTierIndex: number
+  ) {
+    const tiers =
+      await this.createTiers(
+        serviceCategoryId
+      );
+
+    const nextTier =
+      tiers[currentTierIndex + 1];
+
+    if (!nextTier) {
+      return null;
+    }
+
+    return nextTier;
   }
 }

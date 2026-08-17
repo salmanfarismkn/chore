@@ -1,11 +1,12 @@
 import { FastifyInstance } from "fastify";
-import { AcceptanceService } from "./acceptance.service";
+import { AllocationAcceptanceService } from "./allocation-acceptance.service";
 import { AllocationOfferService } from "./allocation-offer.service";
 
 export async function registerAllocationRoutes(app: FastifyInstance) {
-  const acceptanceService = new AcceptanceService();
+  const acceptanceService = new AllocationAcceptanceService();
   const offerService = new AllocationOfferService();
 
+  
   app.post("/bookings/:bookingId/offer", async (request, reply) => {
     const { bookingId } = request.params as { bookingId: string };
     const body = request.body as {
@@ -27,6 +28,8 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
 
     return reply.status(201).send(offer);
   });
+
+
   app.post("/bookings/:bookingId/accept", async (request, reply) => {
     const { bookingId } = request.params as { bookingId: string };
     const body = request.body as { workerId: number };

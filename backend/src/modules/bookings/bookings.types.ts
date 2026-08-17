@@ -21,6 +21,7 @@ export interface BookingResponse {
     | "WORKING" 
     | "COMPLETED" 
     | "CANCELLED";
+  allocationTier: number;
   estimatedPrice: number;
   finalPrice: number | null;
   otp: string | null;

@@ -1,58 +1,57 @@
 import { redis } from "../../config/redis";
 
 export class AllocationLockService {
-  async acquire(
-    bookingId: number,
-    workerId: number,
-    ttlSeconds: number
-  ): Promise<boolean> {
-    const key = `booking:${bookingId}:allocation`;
+  private getWinnerKey(bookingId: number) {
+    return `booking:${bookingId}:allocation:winner`;
+  }
 
-    const value = workerId.toString();
+  async acquireWinner(
+    bookingId: number,
+    workerId: number
+  ): Promise<boolean> {
+    const key = this.getWinnerKey(bookingId);
 
     const result = await redis.set(
       key,
-      value,
+      workerId.toString(),
       {
-        NX: true,
-        EX: ttlSeconds,
+        NX: true, 
       }
     );
 
     return result === "OK";
   }
 
-  async getWorker(
+  async getWinner(
     bookingId: number
   ): Promise<number | null> {
-    const key = `booking:${bookingId}:allocation`;
+    const key = this.getWinnerKey(bookingId);
 
-    const value = await redis.get(key);
+    const workerId = await redis.get(key);
 
-    return value ? Number(value) : null;
+    return workerId ? Number(workerId) : null;
   }
 
-    async release(
+  async releaseWinner(
     bookingId: number,
     workerId: number
-    ): Promise<boolean> {
-    const key =
-        `booking:${bookingId}:allocation`;
+  ): Promise<boolean> {
+    const key = this.getWinnerKey(bookingId);
 
     const result = await redis.eval(
-        `
+      `
         if redis.call("GET", KEYS[1]) == ARGV[1] then
-            return redis.call("DEL", KEYS[1])
+          return redis.call("DEL", KEYS[1])
         end
 
         return 0
-        `,
-        {
+      `,
+      {
         keys: [key],
         arguments: [workerId.toString()],
-        }
+      }
     );
 
     return result === 1;
-    }
+  }
 }
