@@ -65,5 +65,64 @@ Content-Type: application/json
 POST http://localhost:3000/v1/allocation/bookings/1/accept
 Content-Type: application/json
 {
-  "workerId": 5
+  "workerId": 2
+}
+
+### Worker 1
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "workerId": 1,
+  "tier": "TIER1",
+  "ttlSeconds": 30
+}
+
+### Worker 2
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "workerId": 2,
+  "tier": "TIER1",
+  "ttlSeconds": 5
+}
+
+### Worker 3
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "workerId": 3,
+  "tier": "TIER1",
+  "ttlSeconds": 5
+}
+
+
+### Worker 2 accepts the offer
+POST http://localhost:3000/v1/allocation/bookings/1/accept
+Content-Type: application/json
+
+{
+  "workerId": 2
+}
+
+### Worker 1 accepts the offer
+POST http://localhost:3000/v1/allocation/bookings/1/accept
+Content-Type: application/json
+
+{
+  "workerId": 1
+}
+
+
+
+
+
+### Worker A accepts the offer
+POST http://localhost:3000/v1/allocation/bookings/1/accept
+Content-Type: application/json
+
+{
+  "workerId": "A"
 }

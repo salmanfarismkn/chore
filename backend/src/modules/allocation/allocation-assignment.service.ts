@@ -32,7 +32,7 @@ export class AllocationAssignmentService {
       return null;
     }
 
-    await this.acceptanceService.releaseLock(
+    await this.acceptanceService.releaseWinner(
       bookingId,
       workerId
     );
