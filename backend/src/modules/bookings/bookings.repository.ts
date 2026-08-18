@@ -165,4 +165,22 @@ export class BookingsRepository {
 
     return booking ?? null;
   }
+
+  async startAllocation(bookingId: number) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        status: "ALLOCATING",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.status, "PENDING")
+        )
+      )
+      .returning();
+
+    return booking ?? null;
+  }
 }

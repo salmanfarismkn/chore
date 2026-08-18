@@ -14,6 +14,18 @@ export class TepService {
     bookingId: number,
     serviceCategoryId: number
   ) {
+    const allocationStarted =
+      await this.bookingsRepository.startAllocation(
+        bookingId
+      );
+
+    if (!allocationStarted) {
+      return {
+        allocated: false,
+        reason: "allocation_not_started",
+      };
+    }
+
     const tiers =
       await this.allocationService.createTiers(
         serviceCategoryId
@@ -28,10 +40,14 @@ export class TepService {
 
     const firstTier = tiers[0];
 
-    await this.sendTier(
-      bookingId,
-      firstTier
-    );
+    for (const candidate of firstTier.candidates) {
+      await this.offerService.createOffer(
+        bookingId,
+        candidate.workerId,
+        firstTier.name,
+        firstTier.timeoutSeconds
+      );
+    }
 
     return {
       allocated: true,
