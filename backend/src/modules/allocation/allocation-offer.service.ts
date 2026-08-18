@@ -15,7 +15,9 @@ export class AllocationOfferService {
   ) {
     const offerKey = `booking:${bookingId}:offer:${workerId}`;
 
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const expiresAt = new Date(
+      Date.now() + ttlSeconds * 1000
+    );
 
     await redis.hSet(offerKey, {
       bookingId: bookingId.toString(),
