@@ -54,4 +54,20 @@ export class AllocationLockService {
 
     return result === 1;
   }
+
+  async acquire(
+    bookingId: number,
+    workerId: number,
+    ttlSeconds: number
+  ): Promise<boolean> {
+    const lockKey = `booking:${bookingId}:allocation:winner`;
+
+    // Try to set the lock in Redis with expiry
+    const result = await redis.set(lockKey, workerId.toString(), {
+      NX: true, // only set if not exists
+      EX: ttlSeconds, // expire after ttlSeconds
+    });
+
+    return result === "OK";
+  }
 }

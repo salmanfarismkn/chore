@@ -68,4 +68,67 @@ export class TepService {
       );
     }
   }
+
+  async advanceTier(bookingId: number) {
+    const booking =
+      await this.bookingsRepository.getAllocationState(
+        bookingId
+      );
+
+    if (!booking) {
+      return null;
+    }
+
+    if (booking.status !== "ALLOCATING") {
+      return null;
+    }
+
+    const tiers =
+      await this.allocationService.createTiers(
+        booking.serviceCategoryId
+      );
+
+    const nextTierNumber =
+      booking.allocationTier + 1;
+
+    const nextTier =
+      this.allocationService.getTier(
+        tiers,
+        nextTierNumber
+      );
+
+    if (!nextTier) {
+      return {
+        finished: true,
+        reason: "no_more_candidates",
+      };
+    }
+
+    const updated =
+      await this.bookingsRepository
+        .moveToNextAllocationTier(
+          bookingId,
+          nextTierNumber
+        );
+
+    if (!updated) {
+      return null;
+    }
+
+    for (
+      const candidate of nextTier.candidates
+    ) {
+      await this.offerService.createOffer(
+        bookingId,
+        candidate.workerId,
+        nextTier.name,
+        nextTier.timeoutSeconds
+      );
+    }
+
+    return {
+      finished: false,
+      tier: nextTier.name,
+    };
+  }
 }

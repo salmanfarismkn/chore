@@ -2,7 +2,7 @@ import { allocationWeights, allocationConfig } from "../../config/allocation";
 import type { AllocationCandidate } from "./allocation.types";
 import { AllocationRepository } from "./allocation.repository";
 import { AllocationLockService } from "./allocation-lock.service";
-
+import { BookingsRepository } from "../bookings/bookings.repository";
 
 export interface AllocationTier {
   name: string;
@@ -11,7 +11,10 @@ export interface AllocationTier {
 }
 
 export class AllocationService {
-  constructor(private readonly allocationRepository: AllocationRepository) {}
+  constructor(
+    private readonly allocationRepository: AllocationRepository,
+    private readonly bookingsRepository: BookingsRepository
+  ) {}
 
   private computeScore(candidate: Omit<AllocationCandidate, "score">): number {
     return (
@@ -110,4 +113,21 @@ export class AllocationService {
 
     return nextTier;
   }
+
+  async startAllocation(bookingId: number) {
+    const booking = await this.bookingsRepository.startAllocation(bookingId);
+
+    if (!booking) {
+      return {
+        allocated: false,
+        reason: "allocation_not_started",
+      };
+    }
+
+    return {
+      allocated: true,
+      booking,
+    };
+  }
 }
+

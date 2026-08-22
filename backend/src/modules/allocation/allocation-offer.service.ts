@@ -1,4 +1,8 @@
 import { redis } from "../../config/redis";
+import { db } from "../../db";
+import { workerProfiles } from "../../db/schema";
+import { eq } from "drizzle-orm";
+import { emitWorkerOffer } from "../../realtime/allocation-events";
 import { AllocationLockService } from "./allocation-lock.service";
 
 export class AllocationOfferService {
@@ -13,6 +17,22 @@ export class AllocationOfferService {
     tier: string,
     ttlSeconds: number
   ) {
+
+    const worker = await db
+      .select()
+      .from(workerProfiles)
+      .where(eq(workerProfiles.userId, workerId))
+      .limit(1);
+
+    if (!worker.length || worker[0].status !== "available") {
+      return {
+        bookingId,
+        workerId,
+        tier,
+        status: "unavailable" as const,
+        reason: "worker_not_available",
+      };
+    }
     const offerKey = `booking:${bookingId}:offer:${workerId}`;
 
     const expiresAt = new Date(
@@ -26,7 +46,14 @@ export class AllocationOfferService {
       expiresAt: expiresAt.getTime().toString(),
       status: "pending",
     });
-
+    
+    emitWorkerOffer({
+      bookingId,
+      workerId,
+      tier,
+      expiresAt: expiresAt.getTime(),
+    });
+    
     await redis.expire(offerKey, ttlSeconds);
 
     return {
