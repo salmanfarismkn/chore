@@ -15,5 +15,9 @@ export const env = {
   PORT: Number(getEnv("PORT", "3000")),
   HOST: getEnv("HOST", "0.0.0.0"),
   DATABASE_URL: getEnv("DATABASE_URL"),
+  REDIS_URL: getEnv("REDIS_URL"),
   CORS_ORIGIN: getEnv("CORS_ORIGIN", "*") as string,
+  JWT_SECRET: getEnv("JWT_SECRET"),
+  JWT_EXPIRES_IN: getEnv("JWT_EXPIRES_IN"),
 };
+

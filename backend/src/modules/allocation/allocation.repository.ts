@@ -47,11 +47,9 @@ export class AllocationRepository {
 
       .where(
         and(
-          eq(
-            workerServices.serviceCategoryId,
-            serviceCategoryId
-          ),
-          eq(workerServices.isActive, true)
+          eq(workerServices.serviceCategoryId, serviceCategoryId),
+          eq(workerServices.isActive, true),
+          eq(workerProfiles.status, "available") 
         )
       );
   }

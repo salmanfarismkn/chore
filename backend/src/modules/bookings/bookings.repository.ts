@@ -182,5 +182,7 @@ export class BookingsRepository {
       .returning();
 
     return booking ?? null;
+    
+
   }
 }

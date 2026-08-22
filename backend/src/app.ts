@@ -13,6 +13,9 @@ import { registerServiceRoutes } from "./modules/service-categories/services.rou
 import { registerWorkerServiceRoutes } from "./modules/worker-services/worker-services.routes";
 import { registerBookingRoutes } from "./modules/bookings/bookings.routes";
 import { registerAllocationRoutes } from "./modules/allocation/allocation.routes";
+import jwtPlugin from "./plugins/jwt";
+import authPlugin from "./plugins/auth";
+import { registerAuthRoutes } from "./modules/auth/auth.routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -27,6 +30,15 @@ export function buildApp() {
   app.register(cors, {
     origin: env.CORS_ORIGIN,
     credentials: true,
+  });
+
+  app.register(jwtPlugin);
+  app.register(authPlugin);
+
+  console.log("Authenticate is:", app.authenticate);
+
+  app.register(registerAuthRoutes, {
+    prefix: "/v1/auth",
   });
 
   // Health Module
@@ -59,6 +71,6 @@ export function buildApp() {
   app.register(registerAllocationRoutes, {
     prefix: "/v1/allocation"
   });
-  
+
   return app;
 }

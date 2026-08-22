@@ -82,4 +82,26 @@ export class WorkersRepository {
 
     return worker ?? null;
   }
+
+  async updateStatus(
+    workerId: number,
+    status:
+      | "offline"
+      | "available"
+      | "busy"
+      | "suspended"
+  ) {
+    const [worker] = await db
+      .update(workerProfiles)
+      .set({
+        status,
+        updatedAt: new Date(),
+      })
+      .where(
+        eq(workerProfiles.id, workerId)
+      )
+      .returning();
+
+    return worker ?? null;
+  }
 }

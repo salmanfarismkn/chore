@@ -171,3 +171,37 @@ Content-Type: application/json
 {
   "workerId": 2
 }
+
+### auth test
+POST http://localhost:3000/v1/auth/test-token
+Content-Type: application/json
+
+{
+  "userId":1,
+  "role":"worker"
+}
+
+### auth test
+GET http://localhost:3000/v1/auth/test
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInJvbGUiOiJ3b3JrZXIiLCJpYXQiOjE3ODczODQ4MzEsImV4cCI6MTc4NzM4NTczMX0.0WCovdkCue1afXQgj4UueFDD7t-Qu84Q0fpeZL5OwS4
+
+
+
+### auth test
+POST http://localhost:3000/v1/auth/test-token
+Content-Type: application/json
+
+{
+  "userId":1,
+  "role":"customer"
+}
+
+### auth test
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "workerId": 1,
+  "tier": "tier_1",
+  "ttlSeconds": 30
+}
