@@ -13,27 +13,37 @@ export class AllocationOfferService {
 
   async createOffer(
     bookingId: number,
-    workerId: number,
+    userId: number,   // ✅ renamed from workerId → userId
     tier: string,
     ttlSeconds: number
   ) {
+    if (!userId) {
+      return {
+        bookingId,
+        tier,
+        status: "failed" as const,
+        reason: "missing_user_id",
+      };
+    }
 
+    // ✅ Query by userId in worker_profiles
     const worker = await db
       .select()
       .from(workerProfiles)
-      .where(eq(workerProfiles.userId, workerId))
+      .where(eq(workerProfiles.userId, userId))
       .limit(1);
 
+    // ✅ Ensure this user actually has a worker profile and is available
     if (!worker.length || worker[0].status !== "available") {
       return {
         bookingId,
-        workerId,
+        userId,
         tier,
         status: "unavailable" as const,
-        reason: "worker_not_available",
+        reason: !worker.length ? "not_a_worker" : "worker_not_available",
       };
     }
-    const offerKey = `booking:${bookingId}:offer:${workerId}`;
+    const offerKey = `booking:${bookingId}:offer:${userId}`;
 
     const expiresAt = new Date(
       Date.now() + ttlSeconds * 1000
@@ -41,7 +51,7 @@ export class AllocationOfferService {
 
     await redis.hSet(offerKey, {
       bookingId: bookingId.toString(),
-      workerId: workerId.toString(),
+      workerId: userId.toString(),
       tier,
       expiresAt: expiresAt.getTime().toString(),
       status: "pending",
@@ -49,7 +59,7 @@ export class AllocationOfferService {
     
     emitWorkerOffer({
       bookingId,
-      workerId,
+      workerId: userId,
       tier,
       expiresAt: expiresAt.getTime(),
     });
@@ -58,7 +68,7 @@ export class AllocationOfferService {
 
     return {
       bookingId,
-      workerId,
+      userId,
       tier,
       expiresAt,
       status: "pending" as const,

@@ -10,14 +10,18 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
   app.post("/bookings/:bookingId/offer", async (request, reply) => {
     const { bookingId } = request.params as { bookingId: string };
     const body = request.body as {
-      workerId: number;
+      userId: number;   // ✅ changed from workerId → userId
       tier: string;
       ttlSeconds: number;
     };
 
+    if (!body.userId || !body.tier || !body.ttlSeconds) {
+      return reply.status(400).send({ message: "Missing required fields" });
+    }
+
     const offer = await offerService.createOffer(
       Number(bookingId),
-      body.workerId,
+      body.userId,   // ✅ pass userId here
       body.tier,
       body.ttlSeconds
     );
@@ -30,13 +34,14 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
   });
 
 
+
   app.post("/bookings/:bookingId/accept", async (request, reply) => {
     const { bookingId } = request.params as { bookingId: string };
-    const body = request.body as { workerId: number };
+    const body = request.body as { userId: number };
 
     const accepted = await acceptanceService.accept(
       Number(bookingId),
-      body.workerId
+      body.userId
     );
 
     if (!accepted) {

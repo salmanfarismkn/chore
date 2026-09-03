@@ -4,7 +4,7 @@ const socket = io(
   "http://localhost:3000",
   {
     auth: {
-      token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInJvbGUiOiJ3b3JrZXIiLCJpYXQiOjE3ODczODY0NzIsImV4cCI6MTc4NzM4NzM3Mn0.rhvcxFcEQj8rfI47_5q4qPJK-J4R7zwjG-g0_VEYLvs",
+      token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInJvbGUiOiJ3b3JrZXIiLCJpYXQiOjE3ODg0MzE1NDMsImV4cCI6MTc4ODQzMjQ0M30.pailVxTDZ8zehTSvtloiRgSbJdCwJfOKLHBPngY8pmM",
     },
   }
 );

@@ -1,3 +1,4 @@
+
 import { z } from "zod";
 
 export const createWorkerServiceSchema = z.object({
@@ -7,3 +8,4 @@ export const createWorkerServiceSchema = z.object({
 
   price: z.number().positive(),
 });
+

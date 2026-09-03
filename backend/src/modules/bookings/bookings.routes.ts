@@ -23,7 +23,10 @@ export async function registerBookingRoutes(
     new ServicesRepository();
 
   const allocationRepository = new AllocationRepository();
-  const allocationService = new AllocationService(allocationRepository);
+  const allocationService = new AllocationService(
+      allocationRepository,
+      bookingsRepository   
+    );
 
   const bookingsService = new BookingsService(
     bookingsRepository,
