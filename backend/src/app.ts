@@ -57,7 +57,7 @@ export function buildApp() {
  
 
   app.register(registerServiceRoutes, {
-    prefix: "/v1/services",
+    prefix: "/v1/service-categories",
   });
 
   app.register(registerWorkerServiceRoutes, {
