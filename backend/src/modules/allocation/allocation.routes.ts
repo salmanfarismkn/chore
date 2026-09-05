@@ -10,7 +10,7 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
   app.post("/bookings/:bookingId/offer", async (request, reply) => {
     const { bookingId } = request.params as { bookingId: string };
     const body = request.body as {
-      userId: number;   // ✅ changed from workerId → userId
+      userId: number;  
       tier: string;
       ttlSeconds: number;
     };

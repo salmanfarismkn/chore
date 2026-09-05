@@ -36,6 +36,20 @@
       "when": 1788433251246,
       "tag": "0004_lucky_steve_rogers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788587067216,
+      "tag": "0005_wild_shooting_star",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788587359219,
+      "tag": "0006_striped_blonde_phantom",
+      "breakpoints": true
     }
   ]
 }

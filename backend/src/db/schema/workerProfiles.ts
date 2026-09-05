@@ -12,7 +12,8 @@ export const workerProfiles = pgTable(
 
     averageRating: real("average_rating").default(0),
     completedJobs: integer("completed_jobs").default(0),
-
+    latitude: real("latitude"),
+    longitude: real("longitude"),
 
     status: workerStatusEnum("status")
     .default("offline")

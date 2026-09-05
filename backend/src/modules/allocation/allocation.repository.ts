@@ -15,15 +15,16 @@ export class AllocationRepository {
       .select({
         workerId: workerProfiles.id,
 
-        workerServiceId: workerServices.id,
-
         workerName: users.fullName,
 
         averageRating: workerProfiles.averageRating,
 
         completedJobs: workerProfiles.completedJobs,
 
-        price: workerServices.price,
+        latitude: workerProfiles.latitude,
+
+        longitude: workerProfiles.longitude,
+
       })
       .from(workerServices)
 

@@ -21,9 +21,12 @@ export class BookingsRepository {
         status: "PENDING",
         allocationTier: 1,
         scheduledAt: data.scheduledAt,
+        pickupLatitude: data.pickupLatitude,
+        pickupLongitude: data.pickupLongitude,
         estimatedPrice: data.estimatedPrice.toString(),
         finalPrice: null,
         otp: null,
+
       })
       .returning();
 
@@ -138,6 +141,8 @@ export class BookingsRepository {
         workerId: bookings.workerId,
         status: bookings.status,
         allocationTier: bookings.allocationTier,
+        pickupLatitude: bookings.pickupLatitude,
+        pickupLongitude: bookings.pickupLongitude,
       })
       .from(bookings)
       .where(eq(bookings.id, bookingId));

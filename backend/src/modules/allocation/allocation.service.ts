@@ -3,6 +3,7 @@ import type { AllocationCandidate } from "./allocation.types";
 import { AllocationRepository } from "./allocation.repository";
 import { AllocationLockService } from "./allocation-lock.service";
 import { BookingsRepository } from "../bookings/bookings.repository";
+import { calculateDistanceKm } from "./distance.util";
 
 export interface AllocationTier {
   name: string;
@@ -24,29 +25,58 @@ export class AllocationService {
   }
   private lockService = new AllocationLockService();
 
-  async allocate(serviceCategoryId: number): Promise<(AllocationCandidate & { score: number })[]> {
+  async allocate(
+    serviceCategoryId: number,
+    pickupLatitude: number,
+    pickupLongitude: number
+  ): Promise<(AllocationCandidate & { score: number })[]> {
     const candidates = await this.allocationRepository.findCandidates(serviceCategoryId);
 
     return candidates
-      .map(c => {
+      .flatMap(c => {
+        if (c.latitude === null || c.longitude === null) {
+          return [];
+        }
+
+        const latitude = c.latitude;
+        const longitude = c.longitude;
+
         const averageRating = c.averageRating ?? 0;
         const completedJobs = c.completedJobs ?? 0;
         const candidate: Omit<AllocationCandidate, "score"> = {
           ...c,
+          latitude,
+          longitude,
           averageRating,
           completedJobs,
+          distanceKm: 0,
         };
-
+        const distanceKm = calculateDistanceKm(
+          pickupLatitude,
+          pickupLongitude,
+          candidate.latitude,
+          candidate.longitude
+        );
+        
         return {
           ...candidate,
+          distanceKm,
           score: this.computeScore(candidate),
         };
       })
       .sort((a, b) => b.score - a.score);
   }
 
-  async createTiers(serviceCategoryId: number): Promise<AllocationTier[]> {
-    const candidates = await this.allocate(serviceCategoryId);
+  async createTiers(
+    serviceCategoryId: number,
+    pickupLatitude: number,
+    pickupLongitude: number
+  ): Promise<AllocationTier[]> {
+    const candidates = await this.allocate(
+      serviceCategoryId,
+      pickupLatitude,
+      pickupLongitude
+    );
 
     const tiers: AllocationTier[] = [];
     let startIndex = 0;
@@ -97,11 +127,15 @@ export class AllocationService {
   async moveToNextTier(
     bookingId: number,
     serviceCategoryId: number,
-    currentTierIndex: number
+    currentTierIndex: number,
+    pickupLatitude: number,
+    pickupLongitude: number
   ) {
     const tiers =
       await this.createTiers(
-        serviceCategoryId
+        serviceCategoryId,
+        pickupLatitude,
+        pickupLongitude
       );
 
     const nextTier =

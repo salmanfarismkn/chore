@@ -48,7 +48,11 @@ export class BookingsService {
     });
 
     // 4. Call AllocationService
-    const rankedCandidates = await this.allocationService.allocate(data.serviceCategoryId);
+    const rankedCandidates = await this.allocationService.allocate(
+      data.serviceCategoryId,
+      data.pickupLatitude,
+      data.pickupLongitude
+    );
 
     // 5. Return booking + ranked candidates
     return {

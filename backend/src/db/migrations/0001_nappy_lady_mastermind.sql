@@ -1,1 +1,1 @@
-ALTER TYPE "public"."booking_status" ADD VALUE 'assigned' BEFORE 'en_route';
+-- The assigned enum value is already created by migration 0000.

@@ -1,13 +1,16 @@
 export interface AllocationCandidate {
   workerId: number;
-  workerServiceId: number;
+  workerServiceId?: number;
 
   workerName: string;
 
+  latitude: number;
+  longitude: number;
+
   averageRating: number;
   completedJobs: number;
-
-  price: string;
+  distanceKm: number;
+  price?: string;
 
   score: number;
 }

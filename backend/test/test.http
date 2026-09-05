@@ -281,3 +281,23 @@ Content-Type: application/json
   "tier": "tier_1",
   "ttlSeconds": 30
 }
+
+###
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "tier": "tier_1",
+  "ttlSeconds": 30
+}
+
+###
+POST http://localhost:3000/v1/allocation/bookings/1/offer
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "tier": "tier_1",
+  "ttlSeconds": 30
+}

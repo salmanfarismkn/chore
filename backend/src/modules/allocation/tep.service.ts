@@ -26,9 +26,21 @@ export class TepService {
       };
     }
 
+    if (
+      allocationStarted.pickupLatitude === null ||
+      allocationStarted.pickupLongitude === null
+    ) {
+      return {
+        allocated: false,
+        reason: "missing_pickup_coordinates",
+      };
+    }
+
     const tiers =
       await this.allocationService.createTiers(
-        serviceCategoryId
+        serviceCategoryId,
+        allocationStarted.pickupLatitude,
+        allocationStarted.pickupLongitude
       );
 
     if (tiers.length === 0) {
@@ -83,9 +95,18 @@ export class TepService {
       return null;
     }
 
+    if (
+      booking.pickupLatitude === null ||
+      booking.pickupLongitude === null
+    ) {
+      return null;
+    }
+
     const tiers =
       await this.allocationService.createTiers(
-        booking.serviceCategoryId
+        booking.serviceCategoryId,
+        booking.pickupLatitude,
+        booking.pickupLongitude
       );
 
     const nextTierNumber =
