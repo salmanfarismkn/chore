@@ -5,7 +5,9 @@ export interface CreateBookingInput {
   customerId: number;    
   serviceCategoryId: number;  
   scheduledAt: Date;
-  estimatedPrice: number;     
+  estimatedPrice: number; 
+  pickupLatitude: number;
+  pickupLongitude: number;    
 }
 
 export interface BookingResponse {

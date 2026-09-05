@@ -7,6 +7,7 @@ import {
   timestamp,
   boolean,
   index,
+  real,
 } from "drizzle-orm/pg-core";
 import { bookingStatusEnum } from "./enums";
 
@@ -26,6 +27,10 @@ export const bookings = pgTable(
     allocationTier: integer("allocation_tier").default(1).notNull(),
 
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    
+    pickupLatitude: real("pickup_latitude"),
+
+    pickupLongitude: real("pickup_longitude"),
 
     estimatedPrice: numeric("estimated_price", {
       precision: 10,
