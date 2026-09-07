@@ -5,6 +5,7 @@ import { AllocationLockService } from "./allocation-lock.service";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import { calculateDistanceKm } from "./distance.util";
 
+
 export interface AllocationTier {
   name: string;
   candidates: (AllocationCandidate & { score: number })[];
