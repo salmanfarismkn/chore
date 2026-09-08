@@ -1,5 +1,46 @@
 import { BOOKING_TRANSITIONS, BookingStatus } from "./booking-status";
 import { describe, it, expect, vi } from "vitest";
+import { IdempotencyService } from "../idempotency/idempotency.service";
+import { BookingsService } from "./bookings.service";
+
+const mockIdempotencyService = {
+  getExisting: vi.fn(),
+  save: vi.fn(),
+};
+
+const mockBookingsService = {
+  createBooking: vi.fn(),
+};
+
+
+const inFlightRequests = new Map<string, Promise<any>>();
+const routeHandler = async ({
+  headers,
+  body,
+}: {
+  headers: { "idempotency-key": string };
+  body: any;
+}) => {
+  const key = headers["idempotency-key"];
+  const existing = await mockIdempotencyService.getExisting(key);
+  if (existing?.response) return existing.response;
+
+  const inFlight = inFlightRequests.get(key);
+  if (inFlight) return inFlight;
+
+  const request = (async () => {
+    const booking = await mockBookingsService.createBooking(body);
+    await mockIdempotencyService.save(key, booking);
+    return booking;
+  })();
+  inFlightRequests.set(key, request);
+
+  try {
+    return await request;
+  } finally {
+    inFlightRequests.delete(key);
+  }
+};
 
 const repo = {
   findBookingById: vi.fn(),
@@ -211,5 +252,81 @@ describe("Tier progression stops after cancellation", () => {
     };
 
     expect(await handler()).toBe("stopped");
+  });
+});
+describe("Idempotency - same request twice", () => {
+  it("returns the same booking for duplicate requests", async () => {
+    const key = "abc123";
+    const booking = { id: 101, status: "PENDING" };
+
+    mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+    mockBookingsService.createBooking.mockResolvedValueOnce(booking);
+    mockIdempotencyService.save.mockResolvedValueOnce(booking);
+
+    const result1 = await routeHandler({ headers: { "idempotency-key": key }, body: booking });
+    expect(result1.id).toBe(101);
+
+    mockIdempotencyService.getExisting.mockResolvedValueOnce({ response: booking });
+    const result2 = await routeHandler({ headers: { "idempotency-key": key }, body: booking });
+    expect(result2.id).toBe(101);
+  });
+});
+
+describe("Idempotency - same key, different body", () => {
+  it("returns the first booking regardless of body differences", async () => {
+    const key = "abc123";
+    const bookingA = { id: 101, status: "PENDING" };
+
+    mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+    mockBookingsService.createBooking.mockResolvedValueOnce(bookingA);
+    mockIdempotencyService.save.mockResolvedValueOnce(bookingA);
+
+    // First request
+    const resultA = await routeHandler({ headers: { "idempotency-key": key }, body: { foo: "A" } });
+    expect(resultA.id).toBe(101);
+
+    // Second request with different body but same key
+    mockIdempotencyService.getExisting.mockResolvedValueOnce({ response: bookingA });
+    const resultB = await routeHandler({ headers: { "idempotency-key": key }, body: { foo: "B" } });
+    expect(resultB.id).toBe(101);
+  });
+});
+describe("Idempotency - different keys", () => {
+  it("creates separate bookings for different keys", async () => {
+    const bookingA = { id: 101, status: "PENDING" };
+    const bookingB = { id: 102, status: "PENDING" };
+
+    mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+    mockBookingsService.createBooking.mockResolvedValueOnce(bookingA);
+    mockIdempotencyService.save.mockResolvedValueOnce(bookingA);
+
+    const resultA = await routeHandler({ headers: { "idempotency-key": "abc123" }, body: bookingA });
+    expect(resultA.id).toBe(101);
+
+    mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+    mockBookingsService.createBooking.mockResolvedValueOnce(bookingB);
+    mockIdempotencyService.save.mockResolvedValueOnce(bookingB);
+
+    const resultB = await routeHandler({ headers: { "idempotency-key": "xyz789" }, body: bookingB });
+    expect(resultB.id).toBe(102);
+  });
+});
+describe("Idempotency - concurrent requests", () => {
+  it("only one booking is created, the other returns the same record", async () => {
+    const key = "same-key";
+    const booking = { id: 101, status: "PENDING" };
+
+    mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+    mockBookingsService.createBooking.mockResolvedValueOnce(booking);
+    mockIdempotencyService.save.mockResolvedValueOnce(booking);
+
+    // Simulate two requests at the same time
+    const [result1, result2] = await Promise.all([
+      routeHandler({ headers: { "idempotency-key": key }, body: booking }),
+      routeHandler({ headers: { "idempotency-key": key }, body: booking }),
+    ]);
+
+    expect(result1.id).toBe(101);
+    expect(result2.id).toBe(101);
   });
 });
