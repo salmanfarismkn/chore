@@ -8,7 +8,8 @@ import { UsersRepository } from "../users/users.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
 import { AllocationRepository } from "../allocation/allocation.repository";
 import { AllocationService } from "../allocation/allocation.service";
-
+import { IdempotencyRepository } from "../idempotency/idempotency.repository";
+import { IdempotencyService } from "../idempotency/idempotency.service";
 
 export async function registerBookingRoutes(
   app: FastifyInstance
@@ -28,16 +29,31 @@ export async function registerBookingRoutes(
       bookingsRepository   
     );
 
+  const idempotencyService = new IdempotencyService(
+    new IdempotencyRepository()
+  );
+
   const bookingsService = new BookingsService(
     bookingsRepository,
     usersRepository,
     servicesRepository,
-    allocationService
+    allocationService,
+    undefined as never
   );
 
-  app.post("/", async (request, reply) => {
-    const parsed =
-      createBookingSchema.safeParse(request.body);
+  app.post("/", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const idempotencyKey = request.headers["idempotency-key"];
+
+    
+    if (typeof idempotencyKey !== "string" || !idempotencyKey) {
+      return reply.status(400).send({
+        message: "Idempotency-Key header is required",
+      });
+    }
+
+    const parsed = createBookingSchema.safeParse(request.body);
 
     if (!parsed.success) {
       return reply.status(400).send({
@@ -46,18 +62,44 @@ export async function registerBookingRoutes(
       });
     }
 
+    const user = request.user as { userId: number }; 
+
+
+    const existing = await idempotencyService.getExisting(
+      user.userId,
+      idempotencyKey
+    );
+
+    if (existing) {
+      return reply.status(200).send(existing.response);
+    }
+
     const bookingData = {
       ...parsed.data,
       estimatedPrice: 0,
     };
 
-    const booking =
-      await bookingsService.createBooking(
-        bookingData
+    const booking = await bookingsService.createBooking(bookingData);
+
+
+    const stored = await idempotencyService.save(
+      user.userId,
+      idempotencyKey,
+      booking
+    );
+
+    if (stored === null) {
+
+      const winner = await idempotencyService.getExisting(
+        user.userId,
+        idempotencyKey
       );
+      return reply.status(200).send(winner.response);
+    }
 
     return reply.status(201).send(booking);
   });
+
 
   app.get("/", async () => {
     return bookingsService.getAllBookings();
@@ -85,6 +127,34 @@ export async function registerBookingRoutes(
     );
   });
 
+app.post("/:id/cancel", {
+  preHandler: [app.authenticate],
+}, async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const user = request.user as {
+    userId: number;
+    role: Parameters<BookingsService["cancelBooking"]>[2];
+  };
+
+  try {
+    const booking = await bookingsService.cancelBooking(
+      Number(id),
+      user.userId,   
+      user.role      
+    );
+
+    return reply.send(booking);
+  } catch (error) {
+    return reply.status(400).send({
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to cancel booking",
+    });
+  }
+});
+
+  
   app.get("/:id", async (request) => {
     const { id } =
       request.params as {

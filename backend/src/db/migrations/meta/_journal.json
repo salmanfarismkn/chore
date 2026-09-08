@@ -50,6 +50,13 @@
       "when": 1788587359219,
       "tag": "0006_striped_blonde_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788866045619,
+      "tag": "0007_plain_blue_shield",
+      "breakpoints": true
     }
   ]
 }
