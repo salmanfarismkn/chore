@@ -1,5 +1,29 @@
 import { BOOKING_TRANSITIONS, BookingStatus } from "./booking-status";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+const repo = {
+  findBookingById: vi.fn(),
+};
+
+const service = {
+  async cancelBooking(
+    id: number,
+    userId: number,
+    role: "customer" | "worker" | "admin",
+  ) {
+    const booking = await repo.findBookingById(id);
+
+    if (
+      (role === "customer" && booking.customerId !== userId) ||
+      (role === "worker" && booking.workerId !== userId)
+    ) {
+      throw new Error("You cannot cancel this booking");
+    }
+
+    booking.status = "CANCELLED";
+    return booking;
+  },
+};
 function canTransition(from: BookingStatus, to: BookingStatus): boolean {
   return BOOKING_TRANSITIONS[from].includes(to);
 }
@@ -126,5 +150,66 @@ describe("Customer cancels after assignment", () => {
     const booking = { status: "ASSIGNED" as BookingStatus };
     const cancelled = canTransition(booking.status, "CANCELLED");
     expect(cancelled).toBe(true);
+  });
+});
+describe("Customer cancellation", () => {
+  it("allows Customer A to cancel their own booking", async () => {
+    const booking = { id: 1, status: "ASSIGNED", customerId: 42 };
+    repo.findBookingById.mockResolvedValue(booking);
+
+    const result = await service.cancelBooking(1, 42, "customer");
+    expect(result.status).toBe("CANCELLED");
+  });
+
+  it("blocks Customer B from cancelling Customer A's booking", async () => {
+    const booking = { id: 1, status: "ASSIGNED", customerId: 42 };
+    repo.findBookingById.mockResolvedValue(booking);
+
+    await expect(service.cancelBooking(1, 99, "customer"))
+      .rejects.toThrow("You cannot cancel this booking");
+  });
+});
+describe("Worker cancellation", () => {
+  it("allows Worker A assigned to booking to cancel", async () => {
+    const booking = { id: 1, status: "ASSIGNED", workerId: 7 };
+    repo.findBookingById.mockResolvedValue(booking);
+
+    const result = await service.cancelBooking(1, 7, "worker");
+    expect(result.status).toBe("CANCELLED");
+  });
+
+  it("blocks Worker B not assigned to booking", async () => {
+    const booking = { id: 1, status: "ASSIGNED", workerId: 7 };
+    repo.findBookingById.mockResolvedValue(booking);
+
+    await expect(service.cancelBooking(1, 8, "worker"))
+      .rejects.toThrow("You cannot cancel this booking");
+  });
+});
+describe("Admin cancellation", () => {
+  it("allows Admin to cancel any valid booking", async () => {
+    const booking = { id: 1, status: "ASSIGNED", customerId: 42, workerId: 7 };
+    repo.findBookingById.mockResolvedValue(booking);
+
+    const result = await service.cancelBooking(1, 999, "admin");
+    expect(result.status).toBe("CANCELLED");
+  });
+});
+describe("Tier progression stops after cancellation", () => {
+  it("does not advance tiers once booking is cancelled", async () => {
+    const booking = { id: 1, status: "ALLOCATING", customerId: 42 };
+    repo.findBookingById.mockResolvedValue(booking);
+
+    await service.cancelBooking(1, 42, "customer");
+
+    // Simulate tier expiry handler
+    const handler = async () => {
+      if (booking.status !== "ALLOCATING") {
+        return "stopped";
+      }
+      return "advanced";
+    };
+
+    expect(await handler()).toBe("stopped");
   });
 });

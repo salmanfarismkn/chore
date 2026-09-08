@@ -121,11 +121,12 @@ export class BookingsService {
     return updated;
   }
 
-  async cancelBooking(bookingId: number) {
-    const booking = 
-      await this.bookingsRepository.findBookingById(
-        bookingId
-    );
+  async cancelBooking(
+    bookingId: number,
+    userId: number,
+    role: "customer" | "worker" | "admin"
+  ) {
+    const booking = await this.bookingsRepository.findBookingById(bookingId);
 
     if (!booking) {
       throw new Error("Booking not found");
@@ -134,37 +135,41 @@ export class BookingsService {
     const currentStatus = booking.status as BookingStatus;
 
     if (!canTransition(currentStatus, "CANCELLED")) {
-      throw new Error(
-        `Booking cannot be cancelled from ${currentStatus}`
-      );
+      throw new Error(`Booking cannot be cancelled from ${currentStatus}`);
     }
 
-    const cancelled =
-      await this.bookingsRepository.transitionStatus(
-        bookingId,
-        currentStatus,
-        "CANCELLED"
-      );
+
+    if (role === "customer" && booking.customerId !== userId) {
+      throw new Error("You cannot cancel this booking");
+    }
+
+    if (role === "worker" && booking.workerId !== userId) {
+      throw new Error("You cannot cancel this booking");
+    }
+
+   
+
+    const cancelled = await this.bookingsRepository.transitionStatus(
+      bookingId,
+      currentStatus,
+      "CANCELLED"
+    );
 
     if (!cancelled) {
       throw new Error("Booking cancellation failed");
     }
 
-    // If allocation is running, stop the current winner/allocation state.
     if (currentStatus === "ALLOCATING") {
-      const winner =
-        await this.allocationLockService.getWinner(bookingId);
+      const winner = await this.allocationLockService.getWinner(bookingId);
 
       if (winner !== null) {
-        await this.allocationLockService.releaseWinner(
-          bookingId,
-          winner
-        );
+        await this.allocationLockService.releaseWinner(bookingId, winner);
       }
     }
 
     return cancelled;
   }
+
 
   async getWorkerBookings(workerId: number) {
     return this.bookingsRepository.findWorkerBookings(

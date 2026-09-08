@@ -86,26 +86,33 @@ export async function registerBookingRoutes(
     );
   });
 
-  app.post("/:id/cancel", {
-    preHandler: [app.authenticate],
-  }, async (request, reply) => {
-    const { id } = request.params as { id: string };
+app.post("/:id/cancel", {
+  preHandler: [app.authenticate],
+}, async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const user = request.user as {
+    userId: number;
+    role: Parameters<BookingsService["cancelBooking"]>[2];
+  };
 
-    try {
-      const booking = await bookingsService.cancelBooking(
-        Number(id)
-      );
+  try {
+    const booking = await bookingsService.cancelBooking(
+      Number(id),
+      user.userId,   
+      user.role      
+    );
 
-      return reply.send(booking);
-    } catch (error) {
-      return reply.status(400).send({
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unable to cancel booking",
-      });
-    }
-  });
+    return reply.send(booking);
+  } catch (error) {
+    return reply.status(400).send({
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to cancel booking",
+    });
+  }
+});
+
   
   app.get("/:id", async (request) => {
     const { id } =
