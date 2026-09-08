@@ -7,6 +7,7 @@ import type {
   BookingResponse,
   CreateBookingInput,
 } from "./bookings.types";
+import { BookingStatus } from "./booking-status";
 
 export class BookingsRepository {
   async createBooking(
@@ -171,6 +172,24 @@ export class BookingsRepository {
     return booking ?? null;
   }
 
+  async markAllocationFailed(bookingId: number) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        status: "CANCELLED",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.status, "ALLOCATING")
+        )
+      )
+      .returning();
+
+    return booking ?? null;
+  }
+  
   async startAllocation(bookingId: number) {
     const [booking] = await db
       .update(bookings)
@@ -187,7 +206,30 @@ export class BookingsRepository {
       .returning();
 
     return booking ?? null;
-    
 
+  }
+
+  async transitionStatus(
+    bookingId: number,
+    currentStatus: BookingStatus,
+    nextStatus: BookingStatus
+  ) {
+    type BookingDbStatus = (typeof bookings.status.enumValues)[number];
+
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        status: nextStatus as BookingDbStatus,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.status, currentStatus as BookingDbStatus)
+        )
+      )
+      .returning();
+
+    return booking ?? null;
   }
 }

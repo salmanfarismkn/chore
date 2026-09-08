@@ -32,7 +32,8 @@ export async function registerBookingRoutes(
     bookingsRepository,
     usersRepository,
     servicesRepository,
-    allocationService
+    allocationService,
+    undefined as never
   );
 
   app.post("/", async (request, reply) => {
@@ -85,6 +86,27 @@ export async function registerBookingRoutes(
     );
   });
 
+  app.post("/:id/cancel", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      const booking = await bookingsService.cancelBooking(
+        Number(id)
+      );
+
+      return reply.send(booking);
+    } catch (error) {
+      return reply.status(400).send({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to cancel booking",
+      });
+    }
+  });
+  
   app.get("/:id", async (request) => {
     const { id } =
       request.params as {
