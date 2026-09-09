@@ -55,7 +55,6 @@ export class TepService {
 
     const firstTier = tiers[0];
 
-    // 🔑 Set remaining counter in Redis
     const key = `allocation:booking:${bookingId}:tier:${firstTier.name}:remaining`;
     await redis.set(key, firstTier.candidates.length.toString());
 
@@ -78,7 +77,7 @@ export class TepService {
     bookingId: number,
     tier: AllocationTier
   ) {
-    // 🔑 Set remaining counter in Redis
+    
     const key = `allocation:booking:${bookingId}:tier:${tier.name}:remaining`;
     await redis.set(key, tier.candidates.length.toString());
 
@@ -90,6 +89,60 @@ export class TepService {
         tier.timeoutSeconds
       );
     }
+  }
+
+  private async startTier(
+    bookingId: number,
+    tier: number
+  ) {
+    const booking =
+      await this.bookingsRepository.getAllocationState(
+        bookingId
+      );
+
+    if (!booking) {
+      return;
+    }
+
+    if (booking.status !== "ALLOCATING") {
+      return;
+    }
+
+    if (
+      booking.pickupLatitude === null ||
+      booking.pickupLongitude === null
+    ) {
+      await this.bookingsRepository.markAllocationFailed(bookingId);
+      return;
+    }
+
+    const tiers = await this.allocationService.createTiers(
+      booking.serviceCategoryId,
+      booking.pickupLatitude,
+      booking.pickupLongitude
+    );
+
+    const targetTier = this.allocationService.getTier(
+      tiers,
+      tier
+    );
+
+    if (!targetTier) {
+      await this.bookingsRepository.markAllocationFailed(bookingId);
+      return;
+    }
+
+    const updated =
+      await this.bookingsRepository.moveToNextAllocationTier(
+        bookingId,
+        tier
+      );
+
+    if (!updated) {
+      return;
+    }
+
+    await this.sendTier(bookingId, targetTier);
   }
 
   async advanceTier(bookingId: number) {
@@ -223,5 +276,31 @@ export class TepService {
     if (!updated) return;
 
     await this.sendTier(bookingId, nextTier);
+  }
+
+  async resumeAllocation(
+    bookingId: number,
+    tier: number
+  ): Promise<void> {
+    const booking = await (this.bookingsRepository as any).getBooking(
+          bookingId
+        );
+
+    if (!booking) {
+      return;
+    }
+
+    if (booking.status !== "ALLOCATING") {
+      return;
+    }
+
+    const winner =
+      await this.allocationLockService.getWinner(bookingId);
+
+    if (winner !== null) {
+      return;
+    }
+
+    await this.startTier(bookingId, tier);
   }
 }

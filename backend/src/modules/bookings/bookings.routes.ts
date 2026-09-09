@@ -41,69 +41,59 @@ export async function registerBookingRoutes(
     undefined as never
   );
 
-  app.post("/", {
-    preHandler: [app.authenticate],
-  }, async (request, reply) => {
-    const idempotencyKey = request.headers["idempotency-key"];
+  app.post(
+    "/",
+    {
+      preHandler: [app.authenticate],
+    },
+    async (request, reply) => {
+      const user = request.user as {
+        userId: number;
+      };
 
-    
-    if (typeof idempotencyKey !== "string" || !idempotencyKey) {
-      return reply.status(400).send({
-        message: "Idempotency-Key header is required",
-      });
-    }
+      const idempotencyKey =
+        request.headers["idempotency-key"];
 
-    const parsed = createBookingSchema.safeParse(request.body);
+      if (
+        typeof idempotencyKey !== "string" ||
+        !idempotencyKey.trim()
+      ) {
+        return reply.status(400).send({
+          message: "Idempotency-Key header is required",
+        });
+      }
 
-    if (!parsed.success) {
-      return reply.status(400).send({
-        message: "Invalid request body",
-        errors: parsed.error.flatten(),
-      });
-    }
-
-    const user = request.user as { userId: number }; 
-
-
-    const existing = await idempotencyService.getExisting(
-      user.userId,
-      idempotencyKey
-    );
-
-    if (existing) {
-      return reply.status(200).send(existing.response);
-    }
-
-    const bookingData = {
-      ...parsed.data,
-      estimatedPrice: 0,
-    };
-
-    const booking = await bookingsService.createBooking(bookingData);
-
-
-    const stored = await idempotencyService.save(
-      user.userId,
-      idempotencyKey,
-      booking
-    );
-
-    if (stored === null) {
-
-      const winner = await idempotencyService.getExisting(
-        user.userId,
-        idempotencyKey
+      const parsed = createBookingSchema.safeParse(
+        request.body
       );
-      return reply.status(200).send(winner.response);
+
+      if (!parsed.success) {
+        return reply.status(400).send({
+          message: "Invalid request body",
+          errors: parsed.error.flatten(),
+        });
+      }
+
+      const bookingData = {
+        ...parsed.data,
+        estimatedPrice: 0,
+      };
+
+      const booking =
+        await bookingsService.createBooking(
+          bookingData,
+          user.userId,
+          idempotencyKey
+        );
+
+      return reply.status(201).send(booking);
     }
-
-    return reply.status(201).send(booking);
-  });
+  );
 
 
-  app.get("/", async () => {
-    return bookingsService.getAllBookings();
-  });
+    app.get("/", async () => {
+      return bookingsService.getAllBookings();
+    });
 
   app.get("/customer/:customerId", async (request) => {
     const { customerId } =

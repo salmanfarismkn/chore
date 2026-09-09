@@ -1,13 +1,16 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "../../db";
-import { bookings } from "../../db/schema";
+import { bookings, idempotencyKeys } from "../../db/schema";
 
 import type {
   BookingResponse,
   CreateBookingInput,
 } from "./bookings.types";
 import { BookingStatus } from "./booking-status";
+import { IdempotencyRepository } from "../idempotency/idempotency.repository";
+
+const idempotencyRepository = new IdempotencyRepository();
 
 export class BookingsRepository {
   async createBooking(
@@ -231,5 +234,74 @@ export class BookingsRepository {
       .returning();
 
     return booking ?? null;
+  }
+
+  async createBookingWithIdempotency(
+    data: CreateBookingInput,
+    userId: number,
+    idempotencyKey: string
+  ) {
+    return db.transaction(async (tx) => {
+      const existing =
+        await idempotencyRepository.findWithTransaction(
+          tx,
+          userId,
+          idempotencyKey
+        );
+
+      if (existing) {
+        return {
+          booking: existing.response,
+          isExisting: true,
+        };
+      }
+
+      const reservation =
+        await idempotencyRepository.createWithTransaction(
+          tx,
+          userId,
+          idempotencyKey,
+          {}
+        );
+
+      if (!reservation) {
+        throw new Error(
+          "Idempotency request is already being processed"
+        );
+      }
+
+      const [booking] = await tx
+        .insert(bookings)
+        .values({
+          customerId: data.customerId,
+          workerId: null,
+          serviceCategoryId: data.serviceCategoryId,
+          status: "PENDING",
+          allocationTier: 1,
+          scheduledAt: data.scheduledAt,
+          pickupLatitude: data.pickupLatitude,
+          pickupLongitude: data.pickupLongitude,
+          estimatedPrice: data.estimatedPrice.toString(),
+          finalPrice: null,
+          otp: null,
+        })
+        .returning();
+
+      if (!booking) {
+        throw new Error("Booking creation failed");
+      }
+
+      await tx
+        .update(idempotencyKeys)
+        .set({
+          response: booking,
+        })
+        .where(eq(idempotencyKeys.id, reservation.id));
+
+      return {
+        booking,
+        isExisting: false,
+      };
+    });
   }
 }
