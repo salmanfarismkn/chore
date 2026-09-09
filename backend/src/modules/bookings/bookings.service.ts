@@ -23,48 +23,40 @@ export class BookingsService {
   ) {}
 
   async createBooking(
-    data: CreateBookingInput
-  ): Promise<BookingWithCandidatesResponse> {
-    const customer =
-      await this.usersRepository.findUserById(
-        data.customerId
-      );
+    data: CreateBookingInput,
+    userId: number,
+    idempotencyKey: string
+  ): Promise<BookingResponse> {
+    const customer = await this.usersRepository.findUserById(
+      data.customerId
+    );
 
     if (!customer) {
       throw new NotFoundError("Customer not found");
     }
 
-    const service =
-      await this.servicesRepository.findServiceById(
-        data.serviceCategoryId
-      );
-
-    if (!service) {
-      throw new NotFoundError(
-        "Service category not found"
-      );
-    }
-
-    const booking = await this.bookingsRepository.createBooking({
-      ...data,
-      estimatedPrice: Number(service.basePrice),
-    });
-
-    // 4. Call AllocationService
-    const rankedCandidates = await this.allocationService.allocate(
-      data.serviceCategoryId,
-      data.pickupLatitude,
-      data.pickupLongitude
+    const service = await this.servicesRepository.findServiceById(
+      data.serviceCategoryId
     );
 
-    // 5. Return booking + ranked candidates
-    return {
-      ...booking,
-      allocation: {
-        candidates: rankedCandidates,
+    if (!service) {
+      throw new NotFoundError("Service category not found");
+    }
+
+
+    const result = (await this.bookingsRepository.createBookingWithIdempotency(
+      {
+        ...data,
+        estimatedPrice: Number(service.basePrice),
       },
-    };
+      userId,
+      idempotencyKey
+    )) as { booking: BookingResponse };
+
+
+    return result.booking;
   }
+
 
   async getAllBookings() {
     return this.bookingsRepository.findAllBookings();

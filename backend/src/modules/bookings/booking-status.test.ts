@@ -1,7 +1,24 @@
 import { BOOKING_TRANSITIONS, BookingStatus } from "./booking-status";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { IdempotencyService } from "../idempotency/idempotency.service";
 import { BookingsService } from "./bookings.service";
+
+import { TepService } from "../allocation/tep.service"; 
+
+const mockBookingsRepository = {
+  getBooking: vi.fn(),
+  moveToNextAllocationTier: vi.fn(),
+};
+
+const mockAllocationLockService = {
+  getWinner: vi.fn(),
+};
+
+const redis = {
+  get: vi.fn(),
+  set: vi.fn(),
+  clear: vi.fn(),
+};
 
 const mockIdempotencyService = {
   getExisting: vi.fn(),
@@ -65,6 +82,11 @@ const service = {
     return booking;
   },
 };
+
+const tepService = {
+  resumeAllocation: vi.fn(),
+};
+
 function canTransition(from: BookingStatus, to: BookingStatus): boolean {
   return BOOKING_TRANSITIONS[from].includes(to);
 }
@@ -328,5 +350,171 @@ describe("Idempotency - concurrent requests", () => {
 
     expect(result1.id).toBe(101);
     expect(result2.id).toBe(101);
+  });
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  inFlightRequests.clear();
+});
+it("creates one booking and one idempotency record for same key", async () => {
+  const key = "abc123";
+  const booking = { id: 101, status: "PENDING" };
+
+  // First request: no existing record
+  mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+  mockBookingsService.createBooking.mockResolvedValueOnce(booking);
+  mockIdempotencyService.save.mockResolvedValueOnce(booking);
+
+  const result1 = await routeHandler({ headers: { "idempotency-key": key }, body: booking });
+  expect(result1.id).toBe(101);
+
+  // Second request: existing record found
+  mockIdempotencyService.getExisting.mockResolvedValueOnce({ response: booking });
+
+  const result2 = await routeHandler({ headers: { "idempotency-key": key }, body: booking });
+  expect(result2.id).toBe(101);
+
+  expect(mockBookingsService.createBooking).toHaveBeenCalledTimes(1);
+  expect(mockIdempotencyService.save).toHaveBeenCalledTimes(1);
+});
+
+
+it("returns first booking when same key used with different body", async () => {
+  const key = "abc123";
+  const booking = { id: 101, status: "PENDING" };
+
+  // First request: no existing record
+  mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+  mockBookingsService.createBooking.mockResolvedValueOnce(booking);
+  mockIdempotencyService.save.mockResolvedValueOnce(booking);
+
+  const resultA = await routeHandler({ headers: { "idempotency-key": key }, body: { foo: "A" } });
+  expect(resultA.id).toBe(101);
+
+  // Second request: existing record found
+  mockIdempotencyService.getExisting.mockResolvedValueOnce({ response: booking });
+
+  const resultB = await routeHandler({ headers: { "idempotency-key": key }, body: { foo: "B" } });
+  expect(resultB.id).toBe(101);
+
+  expect(mockBookingsService.createBooking).toHaveBeenCalledTimes(1);
+  expect(mockIdempotencyService.save).toHaveBeenCalledTimes(1);
+});
+
+it("creates separate bookings for different keys", async () => {
+  const bookingA = { id: 101, status: "PENDING" };
+  const bookingB = { id: 102, status: "PENDING" };
+
+  // First key
+  mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+  mockBookingsService.createBooking.mockResolvedValueOnce(bookingA);
+  mockIdempotencyService.save.mockResolvedValueOnce(bookingA);
+
+  const resultA = await routeHandler({ headers: { "idempotency-key": "abc123" }, body: bookingA });
+  expect(resultA.id).toBe(101);
+
+  // Second key
+  mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+  mockBookingsService.createBooking.mockResolvedValueOnce(bookingB);
+  mockIdempotencyService.save.mockResolvedValueOnce(bookingB);
+
+  const resultB = await routeHandler({ headers: { "idempotency-key": "xyz789" }, body: bookingB });
+  expect(resultB.id).toBe(102);
+
+  expect(mockBookingsService.createBooking).toHaveBeenCalledTimes(2);
+  expect(mockIdempotencyService.save).toHaveBeenCalledTimes(2);
+});
+
+it("handles concurrent requests safely", async () => {
+  const key = "same-key";
+  const booking = { id: 101, status: "PENDING" };
+
+  mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+  mockBookingsService.createBooking.mockResolvedValueOnce(booking);
+  mockIdempotencyService.save.mockResolvedValueOnce(booking);
+
+  const [result1, result2] = await Promise.all([
+    routeHandler({ headers: { "idempotency-key": key }, body: booking }),
+    routeHandler({ headers: { "idempotency-key": key }, body: booking }),
+  ]);
+
+  expect(result1.id).toBe(101);
+  expect(result2.id).toBe(101);
+
+  expect(mockBookingsService.createBooking).toHaveBeenCalledTimes(1);
+  expect(mockIdempotencyService.save).toHaveBeenCalledTimes(1);
+});
+
+it("rolls back when booking insert fails", async () => {
+  const key = "fail-key";
+
+  mockIdempotencyService.getExisting.mockResolvedValueOnce(null);
+  mockBookingsService.createBooking.mockRejectedValueOnce(new Error("DB error"));
+
+  await expect(
+    routeHandler({ headers: { "idempotency-key": key }, body: { foo: "bad" } })
+  ).rejects.toThrow("DB error");
+
+  expect(mockIdempotencyService.save).not.toHaveBeenCalled();
+});
+describe("Crash Recovery", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    redis.clear(); 
+  });
+
+
+
+  it("Scenario B: does not duplicate offers when active offers exist", async () => {
+    mockBookingsRepository.getBooking.mockResolvedValueOnce({
+      id: 123,
+      status: "ALLOCATING",
+      allocationTier: 1,
+      pickupLatitude: 10,
+      pickupLongitude: 20,
+      serviceCategoryId: 5,
+    });
+
+    // Redis: active offers present
+    redis.get.mockResolvedValueOnce("3");
+
+    await tepService.resumeAllocation(123, 1);
+
+    expect(redis.set).not.toHaveBeenCalled(); // no duplicates
+  });
+
+  it("Scenario C: ignores booking when status is ASSIGNED", async () => {
+    mockBookingsRepository.getBooking.mockResolvedValueOnce({
+      id: 123,
+      status: "ASSIGNED",
+      allocationTier: 1,
+      pickupLatitude: 10,
+      pickupLongitude: 20,
+      serviceCategoryId: 5,
+    });
+
+    await tepService.resumeAllocation(123, 1);
+
+    expect(redis.set).not.toHaveBeenCalled();
+    expect(mockBookingsRepository.moveToNextAllocationTier).not.toHaveBeenCalled();
+  });
+
+  it("Scenario D: stops when winner exists", async () => {
+    mockBookingsRepository.getBooking.mockResolvedValueOnce({
+      id: 123,
+      status: "ALLOCATING",
+      allocationTier: 1,
+      pickupLatitude: 10,
+      pickupLongitude: 20,
+      serviceCategoryId: 5,
+    });
+
+    mockAllocationLockService.getWinner.mockResolvedValueOnce({ workerId: 42 });
+
+    await tepService.resumeAllocation(123, 1);
+
+    expect(redis.set).not.toHaveBeenCalled();
+    expect(mockBookingsRepository.moveToNextAllocationTier).not.toHaveBeenCalled();
   });
 });

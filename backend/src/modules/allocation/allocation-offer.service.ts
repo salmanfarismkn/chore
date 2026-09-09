@@ -13,7 +13,7 @@ export class AllocationOfferService {
 
   async createOffer(
     bookingId: number,
-    userId: number,   // ✅ renamed from workerId → userId
+    userId: number,   
     tier: string,
     ttlSeconds: number
   ) {
@@ -167,5 +167,27 @@ export class AllocationOfferService {
     );
 
     return true;
+  }
+
+  async hasActiveOffers(
+    bookingId: number,
+    tier: number
+  ): Promise<boolean> {
+    const key =
+      `allocation:booking:${bookingId}:tier:${tier}:offers`;
+
+    const offerKeys = await redis.sMembers(key);
+
+    for (const offerKey of offerKeys) {
+      const offer = await redis.hGetAll(offerKey);
+
+      if (offer.status === "pending") {
+        return true;
+      }
+
+      await redis.sRem(key, offerKey);
+    }
+
+    return false;
   }
 }

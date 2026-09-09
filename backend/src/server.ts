@@ -2,6 +2,8 @@ import { buildApp } from "./app";
 import { env } from "./config/env";
 import { connectRedis } from "./config/redis";
 import { initializeSocket } from "./realtime/socket";
+import { startAllocationRecoveryWorker } from "./modules/allocation/allocation-recovery.worker";
+
 
 async function start() {
   const app = buildApp();
@@ -17,6 +19,8 @@ async function start() {
       app.server,
       app
     );
+    
+    startAllocationRecoveryWorker();
 
     app.log.info(`Server running at http://${env.HOST}:${env.PORT}`);
   } catch (error) {
