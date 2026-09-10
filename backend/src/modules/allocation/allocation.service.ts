@@ -32,7 +32,14 @@ export class AllocationService {
     pickupLongitude: number
   ): Promise<(AllocationCandidate & { score: number })[]> {
     const candidates = await this.allocationRepository.findCandidates(serviceCategoryId);
+    const workerIds = candidates.map(
+      (candidate) => candidate.workerId
+    );
 
+    const workloadMap =
+      await this.allocationRepository.getWorkerActiveJobCounts(
+        workerIds
+      );
     return candidates
       .flatMap(c => {
         if (c.latitude === null || c.longitude === null) {
@@ -41,7 +48,7 @@ export class AllocationService {
 
         const latitude = c.latitude;
         const longitude = c.longitude;
-
+        const activeJobs = workloadMap.get(c.workerId) ?? 0;
         const averageRating = c.averageRating ?? 0;
         const completedJobs = c.completedJobs ?? 0;
         const candidate: Omit<AllocationCandidate, "score"> = {
@@ -62,6 +69,7 @@ export class AllocationService {
         return {
           ...candidate,
           distanceKm,
+          activeJobs,
           score: this.computeScore(candidate),
         };
       })

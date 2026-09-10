@@ -4,6 +4,7 @@ import { IdempotencyService } from "../idempotency/idempotency.service";
 import { BookingsService } from "./bookings.service";
 
 import { TepService } from "../allocation/tep.service"; 
+import { AllocationRepository } from "../allocation/allocation.repository";
 
 const mockBookingsRepository = {
   getBooking: vi.fn(),
@@ -29,6 +30,29 @@ const mockBookingsService = {
   createBooking: vi.fn(),
 };
 
+const mockTepService = {
+  startTier: vi.fn(),
+};
+
+const mockLeaseService = {
+  acquire: vi.fn(),
+  release: vi.fn(),
+};
+
+const INSTANCE_ID = "instance-1";
+
+const recoveryService = {
+  async recoverBooking(bookingId: number) {
+    const acquired = await mockLeaseService.acquire(bookingId, INSTANCE_ID);
+    if (!acquired) return;
+
+    try {
+      await mockTepService.startTier(bookingId, Date.now());
+    } finally {
+      await mockLeaseService.release(bookingId, INSTANCE_ID);
+    }
+  },
+};
 
 const inFlightRequests = new Map<string, Promise<any>>();
 const routeHandler = async ({
@@ -516,5 +540,48 @@ describe("Crash Recovery", () => {
 
     expect(redis.set).not.toHaveBeenCalled();
     expect(mockBookingsRepository.moveToNextAllocationTier).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Recovery with lease", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Healthy allocation: recovery does nothing", async () => {
+    mockLeaseService.acquire.mockResolvedValueOnce(false);
+
+    await recoveryService.recoverBooking(123);
+
+    expect(mockTepService.startTier).not.toHaveBeenCalled();
+  });
+
+  it("Crash: recovery resumes after lease expires", async () => {
+    mockLeaseService.acquire.mockResolvedValueOnce(true);
+
+    await recoveryService.recoverBooking(123);
+
+    expect(mockTepService.startTier).toHaveBeenCalledWith(123, expect.any(Number));
+    expect(mockLeaseService.release).toHaveBeenCalled();
+  });
+
+  it("Two recovery workers: only one acquires", async () => {
+    mockLeaseService.acquire
+      .mockResolvedValueOnce(true)   // Worker A
+      .mockResolvedValueOnce(false); // Worker B
+
+    await recoveryService.recoverBooking(123); // Worker A
+    await recoveryService.recoverBooking(123); // Worker B
+
+    expect(mockTepService.startTier).toHaveBeenCalledTimes(1);
+  });
+
+  it("Release after successful assignment", async () => {
+    mockLeaseService.acquire.mockResolvedValueOnce(true);
+
+    await recoveryService.recoverBooking(123);
+
+    expect(mockLeaseService.release).toHaveBeenCalledWith(123, INSTANCE_ID);
   });
 });
