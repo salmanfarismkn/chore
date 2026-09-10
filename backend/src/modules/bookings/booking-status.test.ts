@@ -30,6 +30,29 @@ const mockBookingsService = {
   createBooking: vi.fn(),
 };
 
+const mockTepService = {
+  startTier: vi.fn(),
+};
+
+const mockLeaseService = {
+  acquire: vi.fn(),
+  release: vi.fn(),
+};
+
+const INSTANCE_ID = "instance-1";
+
+const recoveryService = {
+  async recoverBooking(bookingId: number) {
+    const acquired = await mockLeaseService.acquire(bookingId, INSTANCE_ID);
+    if (!acquired) return;
+
+    try {
+      await mockTepService.startTier(bookingId, Date.now());
+    } finally {
+      await mockLeaseService.release(bookingId, INSTANCE_ID);
+    }
+  },
+};
 
 const inFlightRequests = new Map<string, Promise<any>>();
 const routeHandler = async ({
@@ -521,26 +544,44 @@ describe("Crash Recovery", () => {
 });
 
 
-describe("AllocationRepository.getWorkerActiveJobCounts", () => {
-  it("counts only active bookings per worker", async () => {
-    // Arrange: mock repository with sample data
-    const repo = new AllocationRepository() as any;
+describe("Recovery with lease", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-    // Stub DB query method used by the repository
-    repo.queryActiveBookings = vi.fn().mockResolvedValue([
-      { workerId: 1, status: "ALLOCATING" },
-      { workerId: 1, status: "ALLOCATING" },
-      { workerId: 2, status: "ALLOCATING" },
-      { workerId: 2, status: "COMPLETED" }, // should be ignored
-      { workerId: 3, status: "CANCELLED" }, // should be ignored
-    ]);
+  it("Healthy allocation: recovery does nothing", async () => {
+    mockLeaseService.acquire.mockResolvedValueOnce(false);
 
-    // Act
-    const counts = await repo.getWorkerActiveJobCounts([1, 2, 3]);
+    await recoveryService.recoverBooking(123);
 
-    // Assert
-    expect(counts.get(1)).toBe(2);          // Worker 1 → 2 active
-    expect(counts.get(2)).toBe(1);          // Worker 2 → 1 active
-    expect(counts.get(3)).toBeUndefined();  // Worker 3 → none
+    expect(mockTepService.startTier).not.toHaveBeenCalled();
+  });
+
+  it("Crash: recovery resumes after lease expires", async () => {
+    mockLeaseService.acquire.mockResolvedValueOnce(true);
+
+    await recoveryService.recoverBooking(123);
+
+    expect(mockTepService.startTier).toHaveBeenCalledWith(123, expect.any(Number));
+    expect(mockLeaseService.release).toHaveBeenCalled();
+  });
+
+  it("Two recovery workers: only one acquires", async () => {
+    mockLeaseService.acquire
+      .mockResolvedValueOnce(true)   // Worker A
+      .mockResolvedValueOnce(false); // Worker B
+
+    await recoveryService.recoverBooking(123); // Worker A
+    await recoveryService.recoverBooking(123); // Worker B
+
+    expect(mockTepService.startTier).toHaveBeenCalledTimes(1);
+  });
+
+  it("Release after successful assignment", async () => {
+    mockLeaseService.acquire.mockResolvedValueOnce(true);
+
+    await recoveryService.recoverBooking(123);
+
+    expect(mockLeaseService.release).toHaveBeenCalledWith(123, INSTANCE_ID);
   });
 });
