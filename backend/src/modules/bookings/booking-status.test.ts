@@ -4,6 +4,7 @@ import { IdempotencyService } from "../idempotency/idempotency.service";
 import { BookingsService } from "./bookings.service";
 
 import { TepService } from "../allocation/tep.service"; 
+import { AllocationRepository } from "../allocation/allocation.repository";
 
 const mockBookingsRepository = {
   getBooking: vi.fn(),
@@ -516,5 +517,30 @@ describe("Crash Recovery", () => {
 
     expect(redis.set).not.toHaveBeenCalled();
     expect(mockBookingsRepository.moveToNextAllocationTier).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("AllocationRepository.getWorkerActiveJobCounts", () => {
+  it("counts only active bookings per worker", async () => {
+    // Arrange: mock repository with sample data
+    const repo = new AllocationRepository() as any;
+
+    // Stub DB query method used by the repository
+    repo.queryActiveBookings = vi.fn().mockResolvedValue([
+      { workerId: 1, status: "ALLOCATING" },
+      { workerId: 1, status: "ALLOCATING" },
+      { workerId: 2, status: "ALLOCATING" },
+      { workerId: 2, status: "COMPLETED" }, // should be ignored
+      { workerId: 3, status: "CANCELLED" }, // should be ignored
+    ]);
+
+    // Act
+    const counts = await repo.getWorkerActiveJobCounts([1, 2, 3]);
+
+    // Assert
+    expect(counts.get(1)).toBe(2);          // Worker 1 → 2 active
+    expect(counts.get(2)).toBe(1);          // Worker 2 → 1 active
+    expect(counts.get(3)).toBeUndefined();  // Worker 3 → none
   });
 });
