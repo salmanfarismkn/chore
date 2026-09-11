@@ -1,11 +1,6 @@
 import { and, eq } from "drizzle-orm";
-
 import { db } from "../../db";
-import {
-  workerServices,
-  workerProfiles,
-  serviceCategories,
-} from "../../db/schema";
+import { workerServices, serviceCategories } from "../../db/schema";
 
 import type {
   CreateWorkerServiceInput,
@@ -21,15 +16,18 @@ export class WorkerServicesRepository {
       .values({
         workerId: data.workerId,
         serviceCategoryId: data.serviceCategoryId,
-        price: data.price.toString(),
       })
       .returning({
-        id: workerServices.id,
         workerId: workerServices.workerId,
         serviceCategoryId: workerServices.serviceCategoryId,
-        price: workerServices.price,
         isActive: workerServices.isActive,
+        createdAt: workerServices.createdAt,
+        updatedAt: workerServices.updatedAt,
       });
+
+    if (!workerService) {
+      throw new Error("Failed to create worker service");
+    }
 
     return workerService;
   }
@@ -61,14 +59,9 @@ export class WorkerServicesRepository {
   async findServicesForWorker(workerId: number) {
     return db
       .select({
-        id: workerServices.id,
-
-        serviceId: serviceCategories.id,
-
+        workerId: workerServices.workerId,
+        serviceCategoryId: workerServices.serviceCategoryId,
         serviceName: serviceCategories.name,
-
-        price: workerServices.price,
-
         isActive: workerServices.isActive,
       })
       .from(workerServices)
@@ -81,87 +74,4 @@ export class WorkerServicesRepository {
       )
       .where(eq(workerServices.workerId, workerId));
   }
-
-  async findWorkersForService(serviceCategoryId: number) {
-    return db
-      .select({
-        workerId: workerProfiles.id,
-
-        price: workerServices.price,
-
-        averageRating:
-          workerProfiles.averageRating,
-
-        completedJobs:
-          workerProfiles.completedJobs,
-
-        status: workerProfiles.status,
-      })
-      .from(workerServices)
-      .innerJoin(
-        workerProfiles,
-        eq(
-          workerServices.workerId,
-          workerProfiles.id
-        )
-      )
-      .where(
-        eq(
-          workerServices.serviceCategoryId,
-          serviceCategoryId
-        )
-      );
-  }
-
-  async updatePrice(
-    id: number,
-    price: number
-  ) {
-    const [workerService] = await db
-      .update(workerServices)
-      .set({
-        price: price.toString(),
-      })
-      .where(eq(workerServices.id, id))
-      .returning();
-
-    return workerService ?? null;
-  }
-
-  async deactivateWorkerService(id: number) {
-    const [workerService] = await db
-      .update(workerServices)
-      .set({
-        isActive: false,
-      })
-      .where(eq(workerServices.id, id))
-      .returning();
-
-    return workerService ?? null;
-  }
-
-  async findAvailableWorkersForService(
-    serviceCategoryId: number
-  ) {
-    return db
-      .select({
-        workerId: workerProfiles.id,
-        price: workerServices.price,
-        averageRating: workerProfiles.averageRating,
-        completedJobs: workerProfiles.completedJobs,
-        status: workerProfiles.status,
-      })
-      .from(workerServices)
-      .innerJoin(
-        workerProfiles,
-        eq(workerServices.workerId, workerProfiles.id)
-      )
-      .where(
-        and(
-          eq(workerServices.serviceCategoryId, serviceCategoryId),
-          eq(workerServices.isActive, true)
-        )
-      );
-  }
-
 }
