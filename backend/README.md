@@ -8,6 +8,8 @@ transitions.
 
 ## Architecture
 
+![System Architecture](../docs/Architecture.png)
+
 ```text
                          ┌─────────────────┐
                          │     Client      │
