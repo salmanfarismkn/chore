@@ -17,4 +17,4 @@ COPY backend ./
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["pnpm", "exec", "tsx", "src/server.ts"]
+CMD ["pnpm", "exec", "tsx", "src/start.ts"]
