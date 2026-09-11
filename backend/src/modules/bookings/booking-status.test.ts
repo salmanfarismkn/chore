@@ -5,6 +5,89 @@ import { BookingsService } from "./bookings.service";
 
 import { TepService } from "../allocation/tep.service"; 
 import { AllocationRepository } from "../allocation/allocation.repository";
+import { BookingsRepository } from "./bookings.repository";
+
+const bookingStore = new Map<number, any>();
+let nextBookingId = 1;
+
+const bookingsRepository = {
+  createBooking: vi.fn(async (data: any) => {
+    const booking = {
+      id: nextBookingId++,
+      customerId: data.customerId,
+      workerId: null,
+      serviceCategoryId: data.serviceCategoryId,
+      status: "pending",
+      allocationTier: 1,
+      pickupLatitude: data.pickupLatitude,
+      pickupLongitude: data.pickupLongitude,
+      estimatedPrice: data.estimatedPrice ?? 100,
+      finalPrice: null,
+      otp: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    bookingStore.set(booking.id, booking);
+    return booking;
+  }),
+  findBookingById: vi.fn(async (id: number) => bookingStore.get(id) ?? null),
+  updateBookingStatus: vi.fn(async (id: number, status: string) => {
+    const existing = bookingStore.get(id);
+    if (!existing) return null;
+
+    const current = existing.status.toUpperCase();
+    const next = status.toUpperCase();
+    if (!canTransition(current as BookingStatus, next as BookingStatus)) {
+      throw new Error(`Invalid booking transition: ${current} -> ${next}`);
+    }
+
+    existing.status = next.toLowerCase();
+    existing.updatedAt = new Date();
+    bookingStore.set(id, existing);
+    return existing;
+  }),
+  assignWorker: vi.fn(async (id: number, workerId: number) => {
+    const existing = bookingStore.get(id);
+    if (!existing) return null;
+    if (!canTransition(existing.status.toUpperCase() as BookingStatus, "ASSIGNED")) {
+      throw new Error(`Invalid booking transition: ${existing.status} -> ASSIGNED`);
+    }
+    existing.workerId = workerId;
+    existing.status = "assigned";
+    existing.updatedAt = new Date();
+    bookingStore.set(id, existing);
+    return existing;
+  }),
+  cancelBooking: vi.fn(async (id: number, status: string) => {
+    const existing = bookingStore.get(id);
+    if (!existing) return null;
+    const current = existing.status.toUpperCase();
+    if (!canTransition(current as BookingStatus, "CANCELLED")) {
+      throw new Error(`Invalid booking transition: ${current} -> CANCELLED`);
+    }
+    existing.status = "cancelled";
+    existing.updatedAt = new Date();
+    bookingStore.set(id, existing);
+    return existing;
+  }),
+};
+
+const bookingsService = {
+  transitionBookingStatus: async (id: number, nextStatus: string) => {
+    const booking = bookingStore.get(id);
+    if (!booking) throw new Error("Booking not found");
+    const current = booking.status.toUpperCase();
+    const next = nextStatus.toUpperCase();
+    const valid = canTransition(current as BookingStatus, next as BookingStatus);
+    if (!valid) {
+      throw new Error(`Invalid booking transition: ${current} -> ${next}`);
+    }
+    booking.status = next.toLowerCase();
+    booking.updatedAt = new Date();
+    bookingStore.set(id, booking);
+    return booking;
+  },
+};
 
 const mockBookingsRepository = {
   getBooking: vi.fn(),
@@ -108,7 +191,20 @@ const service = {
 };
 
 const tepService = {
-  resumeAllocation: vi.fn(),
+  allocationService: {
+    createTiers: vi.fn(),
+    getTier: vi.fn(),
+  },
+  resumeAllocation: async (bookingId: number, tier: number) => {
+    const booking = await mockBookingsRepository.getBooking(bookingId);
+    if (!booking || booking.status !== "ALLOCATING") return;
+
+    const winner = await mockAllocationLockService.getWinner(bookingId);
+    if (winner !== null) return;
+
+    await redis.set(`allocation:booking:${bookingId}:tier:${tier}:remaining`, "1");
+    await tepService.allocationService.createTiers();
+  },
 };
 
 function canTransition(from: BookingStatus, to: BookingStatus): boolean {
@@ -488,6 +584,39 @@ describe("Crash Recovery", () => {
     redis.clear(); 
   });
 
+  it("Scenario A: resumes Tier 1 when no active offers", async () => {
+    mockBookingsRepository.getBooking.mockResolvedValueOnce({
+      id: 123,
+      status: "ALLOCATING",
+      allocationTier: 1,
+      pickupLatitude: 10,
+      pickupLongitude: 20,
+      serviceCategoryId: 5,
+    });
+
+    redis.get.mockResolvedValueOnce(null);
+    mockAllocationLockService.getWinner.mockResolvedValueOnce(null);
+
+    const fakeTier = {
+      name: "Tier1",
+      candidates: [{ workerId: 42 }],
+      timeoutSeconds: 30,
+    };
+
+    (tepService as any).allocationService = {
+      createTiers: vi.fn().mockResolvedValueOnce([fakeTier]),
+      getTier: vi.fn().mockReturnValue(fakeTier),
+    };
+
+    (tepService as any).offerService = {
+      createOffer: vi.fn().mockResolvedValue({ status: "pending" }),
+    };
+
+    await tepService.resumeAllocation(123, 1);
+
+    expect(redis.set).toHaveBeenCalled(); // Tier 1 offers recreated
+    expect((tepService as any).allocationService.createTiers).toHaveBeenCalled();
+  });
 
 
   it("Scenario B: does not duplicate offers when active offers exist", async () => {
@@ -583,5 +712,78 @@ describe("Recovery with lease", () => {
     await recoveryService.recoverBooking(123);
 
     expect(mockLeaseService.release).toHaveBeenCalledWith(123, INSTANCE_ID);
+  });
+});
+
+describe("Booking lifecycle", () => {
+  let bookingId: number;
+
+  beforeEach(async () => {
+    // Create a fresh booking before each test
+    const booking = await bookingsRepository.createBooking({
+      customerId: 1,
+      serviceCategoryId: 1,
+      scheduledAt: new Date(),
+      estimatedPrice: 100,
+    });
+    bookingId = booking.id;
+  });
+
+  it("should follow the full lifecycle", async () => {
+    // Create booking → pending
+    let booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("pending");
+
+    // Start allocation → allocating
+    await bookingsRepository.updateBookingStatus(bookingId, "allocating");
+    booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("allocating");
+
+    // Worker wins → assigned
+    await bookingsRepository.assignWorker(bookingId, 42);
+    booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("assigned");
+
+    // /accept → accepted
+    await bookingsService.transitionBookingStatus(bookingId, "accepted");
+    booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("accepted");
+
+    // /en-route → en_route
+    await bookingsService.transitionBookingStatus(bookingId, "en_route");
+    booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("en_route");
+
+    // /start → working
+    await bookingsService.transitionBookingStatus(bookingId, "working");
+    booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("working");
+
+    // /complete → completed
+    await bookingsService.transitionBookingStatus(bookingId, "completed");
+    booking = await bookingsRepository.findBookingById(bookingId);
+    expect(booking?.status).toBe("completed");
+  });
+
+  it("should reject invalid transitions", async () => {
+    // allocating → completed ❌
+    await bookingsRepository.updateBookingStatus(bookingId, "allocating");
+    await expect(
+      bookingsService.transitionBookingStatus(bookingId, "completed")
+    ).rejects.toThrow();
+
+    // cancelled → accepted ❌
+    await bookingsRepository.updateBookingStatus(bookingId, "cancelled");
+    await expect(
+      bookingsService.transitionBookingStatus(bookingId, "accepted")
+    ).rejects.toThrow();
+
+    // allocation_failed → assigned ❌
+    await expect(
+      bookingsRepository.updateBookingStatus(bookingId, "allocation_failed")
+    ).rejects.toThrow();
+    await expect(
+      bookingsRepository.updateBookingStatus(bookingId, "ASSIGNED")
+    ).rejects.toThrow();
   });
 });

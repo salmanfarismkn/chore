@@ -12,31 +12,48 @@ export class AllocationAssignmentService {
     bookingId: number,
     workerId: number
   ) {
-    // Step 1: Try to accept via Redis lock
-    const accepted = await this.acceptanceService.accept(
-      bookingId,
-      workerId
-    );
+    // 1. Atomically claim the offer/winner in Redis.
+    const accepted =
+      await this.acceptanceService.accept(
+        bookingId,
+        workerId
+      );
 
     if (!accepted) {
       return null;
     }
 
-    // Step 2: Assign worker in PostgreSQL
-    const booking = await this.bookingsRepository.assignWorker(
-      bookingId,
-      workerId
-    );
+    try {
+      // 2. PostgreSQL is the final source of truth.
+      const booking =
+        await this.bookingsRepository.assignWorker(
+          bookingId,
+          workerId
+        );
 
-    if (!booking) {
-      return null;
+      if (!booking) {
+        await this.acceptanceService.releaseWinner(
+          bookingId,
+          workerId
+        );
+
+        return null;
+      }
+
+      // 3. Assignment succeeded.
+      await this.acceptanceService.releaseWinner(
+        bookingId,
+        workerId
+      );
+
+      return booking;
+    } catch (error) {
+      await this.acceptanceService.releaseWinner(
+        bookingId,
+        workerId
+      );
+
+      throw error;
     }
-
-    await this.acceptanceService.releaseWinner(
-      bookingId,
-      workerId
-    );
-
-    return booking;
   }
 }

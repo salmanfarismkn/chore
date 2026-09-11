@@ -22,7 +22,10 @@ export default fp(async (app) => {
       try {
         await request.jwtVerify();
       } catch (err) {
-        return reply.send(err);
+        return reply.code(401).send({
+          message: "Unauthorized",
+          error: err instanceof Error ? err.message : "JWT verification failed",
+        });
       }
     }
   );

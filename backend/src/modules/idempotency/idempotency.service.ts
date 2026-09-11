@@ -14,7 +14,11 @@ export class IdempotencyService {
     key: string,
     response: unknown
   ) {
-    return this.repository.create(
+    const repository = this.repository as IdempotencyRepository & {
+      create: (userId: number, key: string, response: unknown) => unknown;
+    };
+
+    return repository.create(
       userId,
       key,
       response

@@ -58,6 +58,8 @@ export const bookings = pgTable(
     statusIdx: index("bookings_status_idx").on(table.status),
     scheduledAtIdx: index("bookings_scheduled_at_idx").on(table.scheduledAt),
     serviceCategoryIdx: index("bookings_service_category_id_idx").on(table.serviceCategoryId),
+    allocationStatusIdx: index("bookings_status_allocation_tier_idx").on(table.status,table.allocationTier),
+    workerStatusIdx: index("bookings_worker_status_idx").on(table.workerId,table.status),
   })
 );
 

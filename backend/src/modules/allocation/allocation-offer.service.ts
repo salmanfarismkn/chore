@@ -26,14 +26,14 @@ export class AllocationOfferService {
       };
     }
 
-    // ✅ Query by userId in worker_profiles
+
     const worker = await db
       .select()
       .from(workerProfiles)
       .where(eq(workerProfiles.userId, userId))
       .limit(1);
 
-    // ✅ Ensure this user actually has a worker profile and is available
+
     if (!worker.length || worker[0].status !== "available") {
       return {
         bookingId,

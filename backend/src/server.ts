@@ -1,32 +1,52 @@
 import { buildApp } from "./app";
 import { env } from "./config/env";
-import { connectRedis } from "./config/redis";
 import { initializeSocket } from "./realtime/socket";
-import { startAllocationRecoveryWorker } from "./modules/allocation/allocation-recovery.worker";
+import { redis } from "./config/redis";
 
+const app = buildApp();
 
-async function start() {
-  const app = buildApp();
-  await connectRedis();
-  
+const start = async () => {
   try {
     await app.listen({
       port: env.PORT,
-      host: env.HOST,
+      host: "0.0.0.0",
     });
-    
-    initializeSocket(
-      app.server,
-      app
-    );
-    
-    startAllocationRecoveryWorker();
 
-    app.log.info(`Server running at http://${env.HOST}:${env.PORT}`);
+    const io = initializeSocket(app.server, app);
+
+    const shutdown = async (signal: string) => {
+      app.log.info(`Received ${signal}. Shutting down...`);
+
+      try {
+        // Stop accepting new HTTP connections
+        await app.close();
+
+        // Close Socket.IO connections
+        io.close();
+
+        // Close Redis connection
+        await redis.quit();
+
+        app.log.info("Graceful shutdown completed");
+
+        process.exit(0);
+      } catch (error) {
+        app.log.error(error, "Graceful shutdown failed");
+        process.exit(1);
+      }
+    };
+
+    process.once("SIGINT", () => {
+      void shutdown("SIGINT");
+    });
+
+    process.once("SIGTERM", () => {
+      void shutdown("SIGTERM");
+    });
   } catch (error) {
     app.log.error(error);
     process.exit(1);
   }
-}
+};
 
-start();
+void start();
