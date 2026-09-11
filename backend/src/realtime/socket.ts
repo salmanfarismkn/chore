@@ -14,6 +14,10 @@ export function initializeSocket(
   server: HTTPServer,
   app: FastifyInstance
 ) {
+  if (io) {
+    return io;
+  }
+
   io = new SocketIOServer(server, {
     cors: {
       origin: env.CORS_ORIGIN,

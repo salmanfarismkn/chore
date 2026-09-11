@@ -74,6 +74,15 @@ export async function registerBookingRoutes(
         });
       }
 
+      const existing = await idempotencyService.getExisting(
+        user.userId,
+        idempotencyKey
+      );
+
+      if (existing?.response) {
+        return reply.status(200).send(existing.response);
+      }
+
       const bookingData = {
         ...parsed.data,
         estimatedPrice: 0,
@@ -91,9 +100,9 @@ export async function registerBookingRoutes(
   );
 
 
-    app.get("/", async () => {
-      return bookingsService.getAllBookings();
-    });
+  app.get("/", async () => {
+    return bookingsService.getAllBookings();
+  });
 
   app.get("/customer/:customerId", async (request) => {
     const { customerId } =
@@ -117,33 +126,76 @@ export async function registerBookingRoutes(
     );
   });
 
-app.post("/:id/cancel", {
-  preHandler: [app.authenticate],
-}, async (request, reply) => {
-  const { id } = request.params as { id: string };
-  const user = request.user as {
-    userId: number;
-    role: Parameters<BookingsService["cancelBooking"]>[2];
-  };
+  app.post("/:id/cancel", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const user = request.user as {
+      userId: number;
+      role: Parameters<BookingsService["cancelBooking"]>[2];
+    };
 
-  try {
-    const booking = await bookingsService.cancelBooking(
+    try {
+      const booking = await bookingsService.cancelBooking(
+        Number(id),
+        user.userId,   
+        user.role      
+      );
+
+      return reply.send(booking);
+    } catch (error) {
+      return reply.status(400).send({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to cancel booking",
+      });
+    }
+  });
+
+  app.post("/:id/accept", {
+    preHandler: [app.authenticate],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    return bookingsService.transitionBookingStatus(
       Number(id),
-      user.userId,   
-      user.role      
+      "ACCEPTED"
     );
+  });
 
-    return reply.send(booking);
-  } catch (error) {
-    return reply.status(400).send({
-      message:
-        error instanceof Error
-          ? error.message
-          : "Unable to cancel booking",
-    });
-  }
-});
+  app.post("/:id/en-route", {
+    preHandler: [app.authenticate],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
 
+    return bookingsService.transitionBookingStatus(
+      Number(id),
+      "EN_ROUTE"
+    );
+  });
+
+  app.post("/:id/start", {
+    preHandler: [app.authenticate],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    return bookingsService.transitionBookingStatus(
+      Number(id),
+      "WORKING"
+    );
+  });
+
+  app.post("/:id/complete", {
+    preHandler: [app.authenticate],
+  }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    return bookingsService.transitionBookingStatus(
+      Number(id),
+      "COMPLETED"
+    );
+  });
   
   app.get("/:id", async (request) => {
     const { id } =

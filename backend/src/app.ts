@@ -4,6 +4,8 @@ import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 
 import { env } from "./config/env";
+import { connectRedis } from "./config/redis";
+import { initializeSocket } from "./realtime/socket";
 
 import { registerHealthRoutes } from "./modules/health/health.routes";
 import { registerUserRoutes } from "./modules/users/users.routes";
@@ -21,9 +23,17 @@ export function buildApp() {
   const app = Fastify({
     logger: true,
     trustProxy: true,
+    routerOptions: {
+      ignoreTrailingSlash: true,
+    },
   });
 
   registerErrorHandler(app);
+
+  app.addHook("onReady", async () => {
+    await connectRedis();
+    initializeSocket(app.server, app);
+  });
 
   app.register(helmet);
 

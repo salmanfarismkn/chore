@@ -57,6 +57,13 @@
       "when": 1788866045619,
       "tag": "0007_plain_blue_shield",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789105087242,
+      "tag": "0008_worthless_stardust",
+      "breakpoints": true
     }
   ]
 }

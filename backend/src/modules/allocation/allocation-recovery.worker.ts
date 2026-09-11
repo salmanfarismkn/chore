@@ -9,6 +9,7 @@ import { AllocationService } from "./allocation.service";
 import { TepService } from "./tep.service";
 import { AllocationRecoveryService } from "./allocation-recovery.service";
 import { AllocationRepository } from "./allocation.repository";
+import { AllocationLeaseService } from "./allocation-lease.service";
 
 export function startAllocationRecoveryWorker(): void {
   const bookingsRepository = new BookingsRepository();
@@ -17,18 +18,20 @@ export function startAllocationRecoveryWorker(): void {
   const allocationOfferService =
     new AllocationOfferService();
   const allocationRepository = new AllocationRepository();
+  const allocationLeaseService = new AllocationLeaseService();
 
   const allocationService = new AllocationService(
     allocationRepository,
     bookingsRepository
   );
 
-    const tepService = new TepService(
+  const tepService = new TepService(
     allocationService,
     allocationOfferService,
     bookingsRepository,
-    allocationLockService
-    );
+    allocationLockService,
+    allocationLeaseService
+  );
 
 
   const recoveryService =

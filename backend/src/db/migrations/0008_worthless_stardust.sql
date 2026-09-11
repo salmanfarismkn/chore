@@ -1,0 +1,2 @@
+CREATE INDEX "bookings_status_allocation_tier_idx" ON "bookings" USING btree ("status","allocation_tier");--> statement-breakpoint
+CREATE INDEX "bookings_worker_status_idx" ON "bookings" USING btree ("worker_id","status");

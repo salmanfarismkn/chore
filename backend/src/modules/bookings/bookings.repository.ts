@@ -7,7 +7,7 @@ import type {
   BookingResponse,
   CreateBookingInput,
 } from "./bookings.types";
-import { BookingStatus } from "./booking-status";
+import { BookingStatus, canTransition } from "./booking-status";
 import { IdempotencyRepository } from "../idempotency/idempotency.repository";
 
 const idempotencyRepository = new IdempotencyRepository();
@@ -105,6 +105,20 @@ export class BookingsRepository {
       | "COMPLETED"
       | "CANCELLED"
   ) {
+    const existing = await this.findBookingById(bookingId);
+
+    if (!existing) {
+      return null;
+    }
+
+    const currentStatus = existing.status as BookingStatus;
+
+    if (!canTransition(currentStatus, status as BookingStatus)) {
+      throw new Error(
+        `Invalid booking transition: ${currentStatus} -> ${status}`
+      );
+    }
+
     const [booking] = await db
       .update(bookings)
       .set({
@@ -120,22 +134,28 @@ export class BookingsRepository {
     bookingId: number,
     workerId: number
   ) {
-    const [booking] = await db
-      .update(bookings)
-      .set({
-        workerId,
-        status: "ASSIGNED",
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(bookings.id, bookingId),
-          eq(bookings.status, "ALLOCATING")
+    return db.transaction(async (tx) => {
+      const [booking] = await tx
+        .update(bookings)
+        .set({
+          workerId,
+          status: "ASSIGNED",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(bookings.id, bookingId),
+            eq(bookings.status, "ALLOCATING")
+          )
         )
-      )
-      .returning();
+        .returning();
 
-    return booking ?? null;
+      if (!booking) {
+        throw new Error("Booking already assigned");
+      }
+
+      return booking;
+    });
   }
   async getAllocationState(bookingId: number) {
     const [booking] = await db
@@ -303,5 +323,51 @@ export class BookingsRepository {
         isExisting: false,
       };
     });
+  }
+  async cancelBooking(
+    bookingId: number,
+    currentStatus: BookingStatus
+  ) {
+    type BookingDbStatus = (typeof bookings.status.enumValues)[number];
+
+    return db.transaction(async (tx) => {
+      const [booking] = await tx
+        .update(bookings)
+        .set({
+          status: "CANCELLED" as BookingDbStatus,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(bookings.id, bookingId),
+            eq(bookings.status, currentStatus as BookingDbStatus)
+          )
+        )
+        .returning();
+
+      if (!booking) {
+        throw new Error("Cancellation failed");
+      }
+
+      return booking;
+    });
+  }
+
+  async completeBooking(bookingId: number) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        status: "COMPLETED",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.status, "WORKING")
+        )
+      )
+      .returning();
+
+    return booking ?? null;
   }
 }
