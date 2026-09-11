@@ -18,6 +18,8 @@ import { registerAllocationRoutes } from "./modules/allocation/allocation.routes
 import jwtPlugin from "./plugins/jwt";
 import authPlugin from "./plugins/auth";
 import { registerAuthRoutes } from "./modules/auth/auth.routes";
+import swaggerPlugin from "./plugins/swagger";
+import { registerRoutes } from "./routes";
 
 export function buildApp() {
   const app = Fastify({
@@ -51,10 +53,6 @@ export function buildApp() {
     prefix: "/v1/auth",
   });
 
-  // Health Module
-  app.register(registerHealthRoutes, {
-    prefix: "/health",
-  });
 
   // Users Module
   app.register(registerUserRoutes, {
@@ -82,5 +80,9 @@ export function buildApp() {
     prefix: "/v1/allocation"
   });
 
+  app.register(swaggerPlugin);
+
+  app.register(registerRoutes);
+  
   return app;
 }

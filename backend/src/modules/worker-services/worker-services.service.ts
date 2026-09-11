@@ -65,8 +65,12 @@ export class WorkerServicesService {
   }
 
   async getWorkersForService(serviceCategoryId: number) {
-    return this.workerServicesRepository.findWorkersForService(
-      serviceCategoryId
+    const allWorkerServices =
+      await this.workerServicesRepository.findAllWorkerServices();
+
+    return allWorkerServices.filter(
+      (workerService) =>
+        workerService.serviceCategoryId === serviceCategoryId
     );
   }
 }
