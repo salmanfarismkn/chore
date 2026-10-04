@@ -14,7 +14,7 @@ export class AllocationRepository {
   async findCandidates(serviceCategoryId: number) {
     return db
       .select({
-        workerId: workerProfiles.id,
+        workerId: workerProfiles.userId,
 
         workerName: users.fullName,
 
@@ -31,7 +31,7 @@ export class AllocationRepository {
 
       .innerJoin(
         workerProfiles,
-        eq(workerServices.workerId, workerProfiles.id)
+        eq(workerServices.workerId, workerProfiles.userId)
       )
 
       .innerJoin(

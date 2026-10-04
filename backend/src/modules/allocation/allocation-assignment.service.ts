@@ -32,7 +32,7 @@ export class AllocationAssignmentService {
         );
 
       if (!booking) {
-        await this.acceptanceService.releaseWinner(
+        await this.acceptanceService.rollbackAcceptance(
           bookingId,
           workerId
         );
@@ -48,7 +48,7 @@ export class AllocationAssignmentService {
 
       return booking;
     } catch (error) {
-      await this.acceptanceService.releaseWinner(
+      await this.acceptanceService.rollbackAcceptance(
         bookingId,
         workerId
       );

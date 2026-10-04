@@ -83,4 +83,44 @@ export class AllocationAcceptanceService {
       workerId
     );
   }
+
+  async rollbackAcceptance(
+    bookingId: number,
+    workerId: number
+  ): Promise<boolean> {
+    const result = await redis.eval(
+      `
+        if redis.call("GET", KEYS[2]) ~= ARGV[1] then
+          return 0
+        end
+
+        local offerWorker = redis.call("HGET", KEYS[1], "workerId")
+        local status = redis.call("HGET", KEYS[1], "status")
+        local expiresAt = redis.call("HGET", KEYS[1], "expiresAt")
+
+        if offerWorker == ARGV[1] and status == "accepted" then
+          local now = redis.call("TIME")
+          local nowMs = (tonumber(now[1]) * 1000) + math.floor(tonumber(now[2]) / 1000)
+
+          if expiresAt and tonumber(expiresAt) > nowMs then
+            redis.call("HSET", KEYS[1], "status", "pending")
+          elseif offerWorker then
+            redis.call("HSET", KEYS[1], "status", "expired")
+          end
+        end
+
+        redis.call("DEL", KEYS[2])
+        return 1
+      `,
+      {
+        keys: [
+          `booking:${bookingId}:offer:${workerId}`,
+          `booking:${bookingId}:allocation:winner`,
+        ],
+        arguments: [workerId.toString()],
+      }
+    );
+
+    return result === 1;
+  }
 }

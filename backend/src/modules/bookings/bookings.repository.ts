@@ -285,6 +285,20 @@ export class BookingsRepository {
         );
 
       if (!reservation) {
+        const racedRequest =
+          await idempotencyRepository.findWithTransaction(
+            tx,
+            userId,
+            idempotencyKey
+          );
+
+        if (racedRequest?.response) {
+          return {
+            booking: racedRequest.response,
+            isExisting: true,
+          };
+        }
+
         throw new Error(
           "Idempotency request is already being processed"
         );
