@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 
 import { buildApp } from "../../app";
 import { db } from "../../db";
-import { bookings, serviceCategories, users, workerProfiles } from "../../db/schema";
+import { bookings, serviceCategories, users, workerProfiles, workerServices } from "../../db/schema";
+import { WorkerPresenceService } from "../workers/worker-presence.service";
 
 describe("Allocation integration", () => {
   const app = buildApp();
@@ -18,10 +20,12 @@ describe("Allocation integration", () => {
   beforeAll(async () => {
     await app.ready();
 
+    const suffix = randomUUID();
+
     const [customer] = await db
       .insert(users)
       .values({
-        phoneNumber: `+1555${Date.now()}`,
+        phoneNumber: `+1555${suffix.replaceAll("-", "").slice(0, 15)}`,
         fullName: "Allocation Customer",
         role: "customer",
       })
@@ -30,7 +34,7 @@ describe("Allocation integration", () => {
     const [worker] = await db
       .insert(users)
       .values({
-        phoneNumber: `+1556${Date.now()}`,
+        phoneNumber: `+1556${suffix.replaceAll("-", "").slice(0, 15)}`,
         fullName: "Allocation Worker",
         role: "worker",
       })
@@ -39,7 +43,7 @@ describe("Allocation integration", () => {
     const [service] = await db
       .insert(serviceCategories)
       .values({
-        name: `Allocation Service ${Date.now()}`,
+        name: `Allocation Service ${suffix}`,
         description: "Seeded for allocation integration",
         basePrice: "120.00",
         estimatedDurationMinutes: 45,
@@ -56,6 +60,21 @@ describe("Allocation integration", () => {
         latitude: 23.2599,
         longitude: 77.4126,
       });
+
+    const presenceService = new WorkerPresenceService();
+    await presenceService.setBusy(worker.id);
+    const [updatedProfile] = await db
+      .select()
+      .from(workerProfiles)
+      .where(eq(workerProfiles.userId, worker.id));
+    expect(updatedProfile.status).toBe("busy");
+    await presenceService.setAvailable(worker.id);
+
+    await db.insert(workerServices).values({
+      workerId: worker.id,
+      serviceCategoryId: service.id,
+      isActive: true,
+    });
 
     customerId = customer.id;
     workerId = worker.id;
@@ -84,10 +103,43 @@ describe("Allocation integration", () => {
 
     expect(workerTokenResponse.statusCode).toBe(200);
     workerToken = workerTokenResponse.json().token;
+
   });
 
   afterAll(async () => {
     await app.close();
+  });
+
+  it("restricts offer creation and acceptance to authorized roles", async () => {
+    const anonymousOffer = await app.inject({
+      method: "POST",
+      url: "/v1/allocation/bookings/1/offer",
+      payload: {
+        userId: workerId,
+        tier: "tier-1",
+        ttlSeconds: 60,
+      },
+    });
+    expect(anonymousOffer.statusCode).toBe(401);
+
+    const workerOffer = await app.inject({
+      method: "POST",
+      url: "/v1/allocation/bookings/1/offer",
+      headers: { authorization: `Bearer ${workerToken}` },
+      payload: {
+        userId: workerId,
+        tier: "tier-1",
+        ttlSeconds: 60,
+      },
+    });
+    expect(workerOffer.statusCode).toBe(403);
+
+    const customerAccept = await app.inject({
+      method: "POST",
+      url: "/v1/allocation/bookings/1/accept",
+      headers: { authorization: `Bearer ${customerToken}` },
+    });
+    expect(customerAccept.statusCode).toBe(403);
   });
 
   it("allocates a booking and assigns the accepted worker", async () => {
@@ -111,28 +163,14 @@ describe("Allocation integration", () => {
     const booking = createResponse.json();
     bookingId = booking.id;
 
-    await db
-      .update(bookings)
-      .set({ status: "ALLOCATING" })
-      .where(eq(bookings.id, bookingId));
-
     expect(booking.customerId).toBe(customerId);
     expect(booking.serviceCategoryId).toBe(serviceCategoryId);
 
-    const offerResponse = await app.inject({
-      method: "POST",
-      url: `/v1/allocation/bookings/${bookingId}/offer`,
-      headers: {
-        authorization: `Bearer ${workerToken}`,
-      },
-      payload: {
-        userId: workerId,
-        tier: "tier-1",
-        ttlSeconds: 60,
-      },
-    });
-
-    expect(offerResponse.statusCode).toBe(201);
+    const [allocatingBooking] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, bookingId));
+    expect(allocatingBooking.status).toBe("ALLOCATING");
 
     const acceptResponse = await app.inject({
       method: "POST",
@@ -141,7 +179,7 @@ describe("Allocation integration", () => {
         authorization: `Bearer ${workerToken}`,
       },
       payload: {
-        userId: workerId,
+        workerId: workerId + 1000,
       },
     });
 

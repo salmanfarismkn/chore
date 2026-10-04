@@ -1,4 +1,4 @@
-import { FastifyInstance } from "fastify";
+import { FastifyInstance, FastifyReply } from "fastify";
 
 import { BookingsRepository } from "./bookings.repository";
 import { BookingsService } from "./bookings.service";
@@ -8,8 +8,13 @@ import { UsersRepository } from "../users/users.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
 import { AllocationRepository } from "../allocation/allocation.repository";
 import { AllocationService } from "../allocation/allocation.service";
+import { AllocationLockService } from "../allocation/allocation-lock.service";
+import { AllocationOfferService } from "../allocation/allocation-offer.service";
+import { AllocationLeaseService } from "../allocation/allocation-lease.service";
+import { TepService } from "../allocation/tep.service";
 import { IdempotencyRepository } from "../idempotency/idempotency.repository";
 import { IdempotencyService } from "../idempotency/idempotency.service";
+import type { AuthUser } from "../auth/auth.types";
 
 export async function registerBookingRoutes(
   app: FastifyInstance
@@ -28,6 +33,14 @@ export async function registerBookingRoutes(
       allocationRepository,
       bookingsRepository   
     );
+  const allocationLockService = new AllocationLockService();
+  const tepService = new TepService(
+    allocationService,
+    new AllocationOfferService(),
+    bookingsRepository,
+    allocationLockService,
+    new AllocationLeaseService()
+  );
 
   const idempotencyService = new IdempotencyService(
     new IdempotencyRepository()
@@ -38,8 +51,34 @@ export async function registerBookingRoutes(
     usersRepository,
     servicesRepository,
     allocationService,
-    undefined as never
+    allocationLockService
   );
+
+  const authorizeAssignedWorker = async (
+    userId: number,
+    role: string,
+    bookingId: number,
+    reply: FastifyReply
+  ): Promise<boolean> => {
+    if (role !== "worker") {
+      reply.status(403).send({ message: "Forbidden" });
+      return false;
+    }
+
+    const booking = await bookingsRepository.findBookingById(bookingId);
+
+    if (!booking) {
+      reply.status(404).send({ message: "Booking not found" });
+      return false;
+    }
+
+    if (booking.workerId !== userId) {
+      reply.status(403).send({ message: "Forbidden" });
+      return false;
+    }
+
+    return true;
+  };
 
   app.post(
     "/",
@@ -49,6 +88,7 @@ export async function registerBookingRoutes(
     async (request, reply) => {
       const user = request.user as {
         userId: number;
+        role: string;
       };
 
       const idempotencyKey =
@@ -74,6 +114,10 @@ export async function registerBookingRoutes(
         });
       }
 
+      if (user.role !== "customer" || user.userId !== parsed.data.customerId) {
+        return reply.status(403).send({ message: "Forbidden" });
+      }
+
       const existing = await idempotencyService.getExisting(
         user.userId,
         idempotencyKey
@@ -95,35 +139,68 @@ export async function registerBookingRoutes(
           idempotencyKey
         );
 
+      await tepService.startAllocation(
+        booking.id,
+        booking.serviceCategoryId
+      );
+
       return reply.status(201).send(booking);
     }
   );
 
 
-  app.get("/", async () => {
+  app.get("/", { preHandler: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as AuthUser;
+
+    if (user.role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     return bookingsService.getAllBookings();
   });
 
-  app.get("/customer/:customerId", async (request) => {
+  app.get("/customer/:customerId", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
     const { customerId } =
       request.params as {
         customerId: string;
       };
 
-    return bookingsService.getCustomerBookings(
-      Number(customerId)
-    );
+    const requestedCustomerId = Number(customerId);
+
+    const user = request.user as AuthUser;
+
+    if (
+      user.role !== "admin" &&
+      (user.role !== "customer" || user.userId !== requestedCustomerId)
+    ) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
+    return bookingsService.getCustomerBookings(requestedCustomerId);
   });
 
-  app.get("/worker/:workerId", async (request) => {
+  app.get("/worker/:workerId", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
     const { workerId } =
       request.params as {
         workerId: string;
       };
 
-    return bookingsService.getWorkerBookings(
-      Number(workerId)
-    );
+    const requestedWorkerId = Number(workerId);
+
+    const user = request.user as AuthUser;
+
+    if (
+      user.role !== "admin" &&
+      (user.role !== "worker" || user.userId !== requestedWorkerId)
+    ) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
+    return bookingsService.getWorkerBookings(requestedWorkerId);
   });
 
   app.post("/:id/cancel", {
@@ -155,8 +232,15 @@ export async function registerBookingRoutes(
 
   app.post("/:id/accept", {
     preHandler: [app.authenticate],
-  }, async (request) => {
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = request.user as AuthUser;
+    if (!(await authorizeAssignedWorker(
+      user.userId,
+      user.role,
+      Number(id),
+      reply
+    ))) return;
 
     return bookingsService.transitionBookingStatus(
       Number(id),
@@ -166,8 +250,15 @@ export async function registerBookingRoutes(
 
   app.post("/:id/en-route", {
     preHandler: [app.authenticate],
-  }, async (request) => {
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = request.user as AuthUser;
+    if (!(await authorizeAssignedWorker(
+      user.userId,
+      user.role,
+      Number(id),
+      reply
+    ))) return;
 
     return bookingsService.transitionBookingStatus(
       Number(id),
@@ -177,8 +268,15 @@ export async function registerBookingRoutes(
 
   app.post("/:id/start", {
     preHandler: [app.authenticate],
-  }, async (request) => {
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = request.user as AuthUser;
+    if (!(await authorizeAssignedWorker(
+      user.userId,
+      user.role,
+      Number(id),
+      reply
+    ))) return;
 
     return bookingsService.transitionBookingStatus(
       Number(id),
@@ -188,8 +286,15 @@ export async function registerBookingRoutes(
 
   app.post("/:id/complete", {
     preHandler: [app.authenticate],
-  }, async (request) => {
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = request.user as AuthUser;
+    if (!(await authorizeAssignedWorker(
+      user.userId,
+      user.role,
+      Number(id),
+      reply
+    ))) return;
 
     return bookingsService.transitionBookingStatus(
       Number(id),
@@ -197,15 +302,26 @@ export async function registerBookingRoutes(
     );
   });
   
-  app.get("/:id", async (request) => {
+  app.get("/:id", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
     const { id } =
       request.params as {
         id: string;
       };
       
 
-    return bookingsService.getBooking(
-      Number(id)
-    );
+    const booking = await bookingsService.getBooking(Number(id));
+    const user = request.user as AuthUser;
+    const canRead =
+      user.role === "admin" ||
+      (user.role === "customer" && booking.customerId === user.userId) ||
+      (user.role === "worker" && booking.workerId === user.userId);
+
+    if (!canRead) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
+    return booking;
   });
 }

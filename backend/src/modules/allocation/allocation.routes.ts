@@ -3,6 +3,7 @@ import { AllocationAcceptanceService } from "./allocation-acceptance.service";
 import { AllocationAssignmentService } from "./allocation-assignment.service";
 import { AllocationOfferService } from "./allocation-offer.service";
 import { BookingsRepository } from "../bookings/bookings.repository";
+import type { AuthUser } from "../auth/auth.types";
 
 export async function registerAllocationRoutes(app: FastifyInstance) {
   const acceptanceService = new AllocationAcceptanceService();
@@ -12,7 +13,15 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
   );
   const offerService = new AllocationOfferService();
 
-  app.post("/bookings/:bookingId/offer", async (request, reply) => {
+  app.post("/bookings/:bookingId/offer", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const actor = request.user as AuthUser;
+
+    if (actor.role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     const { bookingId } = request.params as { bookingId: string };
     const body = request.body as {
       userId?: number;
@@ -41,14 +50,17 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
     return reply.status(201).send(offer);
   });
 
-  app.post("/bookings/:bookingId/accept", async (request, reply) => {
-    const { bookingId } = request.params as { bookingId: string };
-    const body = request.body as { userId?: number; workerId?: number };
-    const workerId = body.userId ?? body.workerId;
+  app.post("/bookings/:bookingId/accept", {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const actor = request.user as AuthUser;
 
-    if (!workerId) {
-      return reply.status(400).send({ message: "Missing worker id" });
+    if (actor.role !== "worker") {
+      return reply.status(403).send({ message: "Forbidden" });
     }
+
+    const { bookingId } = request.params as { bookingId: string };
+    const workerId = actor.userId;
 
     try {
       const accepted = await assignmentService.acceptOffer(

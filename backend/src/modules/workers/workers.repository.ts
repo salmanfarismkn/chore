@@ -84,7 +84,7 @@ export class WorkersRepository {
   }
 
   async updateStatus(
-    workerId: number,
+    userId: number,
     status:
       | "offline"
       | "available"
@@ -98,7 +98,7 @@ export class WorkersRepository {
         updatedAt: new Date(),
       })
       .where(
-        eq(workerProfiles.id, workerId)
+        eq(workerProfiles.userId, userId)
       )
       .returning();
 

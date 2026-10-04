@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { eq } from "drizzle-orm";
 import { buildApp } from "../../app";
 import { db } from "../../db";
-import { serviceCategories, users } from "../../db/schema";
+import { bookings, serviceCategories, users } from "../../db/schema";
 
 describe("Bookings integration", () => {
   const app = buildApp();
@@ -121,6 +122,75 @@ describe("Bookings integration", () => {
     const secondBooking = secondResponse.json();
 
     expect(secondBooking.id).toBe(firstBooking.id);
+  });
+
+  it("creates only one booking for concurrent duplicate requests", async () => {
+    const idempotencyKey = `integration-concurrent-${Date.now()}`;
+    const payload = {
+      customerId,
+      serviceCategoryId,
+      pickupLatitude: 23.2599,
+      pickupLongitude: 77.4126,
+    };
+    const request = () => app.inject({
+      method: "POST",
+      url: "/v1/bookings",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "idempotency-key": idempotencyKey,
+      },
+      payload,
+    });
+
+    const [firstResponse, secondResponse] = await Promise.all([
+      request(),
+      request(),
+    ]);
+
+    expect([200, 201]).toContain(firstResponse.statusCode);
+    expect([200, 201]).toContain(secondResponse.statusCode);
+    expect(firstResponse.json().id).toBe(secondResponse.json().id);
+
+    const [storedBooking] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, firstResponse.json().id));
+    expect(storedBooking).toBeDefined();
+  });
+
+  it("prevents creating bookings for another customer", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/bookings",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "idempotency-key": `integration-owner-${Date.now()}`,
+      },
+      payload: {
+        customerId: customerId + 1000,
+        serviceCategoryId,
+        pickupLatitude: 23.2599,
+        pickupLongitude: 77.4126,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("restricts booking lists to the owning customer or an admin", async () => {
+    const otherCustomerResponse = await app.inject({
+      method: "GET",
+      url: `/v1/bookings/customer/${customerId + 1000}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(otherCustomerResponse.statusCode).toBe(403);
+
+    const allBookingsResponse = await app.inject({
+      method: "GET",
+      url: "/v1/bookings",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(allBookingsResponse.statusCode).toBe(403);
   });
 
   it("rejects booking creation without authentication", async () => {

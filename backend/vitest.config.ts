@@ -4,12 +4,14 @@ import dotenv from "dotenv";
 
 process.env.NODE_ENV = "test";
 
-dotenv.config({ path: ".env.test", override: true });
+dotenv.config({ path: ".env.test" });
 
 export default defineConfig({
   test: {
     globals: true,
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
+    include: ["src/**/*.test.ts"],
+    exclude: ["**/dist/**", "**/node_modules/**"],
   },
 });
