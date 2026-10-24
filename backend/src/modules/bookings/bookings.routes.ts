@@ -15,6 +15,7 @@ import { TepService } from "../allocation/tep.service";
 import { IdempotencyRepository } from "../idempotency/idempotency.repository";
 import { IdempotencyService } from "../idempotency/idempotency.service";
 import type { AuthUser } from "../auth/auth.types";
+import { AllocationExpirationWorker } from "../allocation/allocation-expiration.worker";
 
 export async function registerBookingRoutes(
   app: FastifyInstance
@@ -41,6 +42,14 @@ export async function registerBookingRoutes(
     allocationLockService,
     new AllocationLeaseService()
   );
+
+  const expirationWorker = new AllocationExpirationWorker(
+    allocationService,
+    new AllocationOfferService(),
+    tepService
+  );
+  app.addHook("onReady", async () => expirationWorker.start());
+  app.addHook("onClose", async () => expirationWorker.stop());
 
   const idempotencyService = new IdempotencyService(
     new IdempotencyRepository()

@@ -20,9 +20,11 @@ export const bookingStatusEnum = pgEnum("booking_status", [
   "PENDING",
   "ALLOCATING",
   "ASSIGNED",
+  "ACCEPTED",
   "EN_ROUTE",
   "WORKING",
   "COMPLETED",
   "CANCELLED",
+  "ALLOCATION_FAILED",
 ]);
 

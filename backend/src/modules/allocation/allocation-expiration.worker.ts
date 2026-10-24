@@ -2,13 +2,15 @@ import { redis } from "../../config/redis";
 
 import { AllocationOfferService } from "./allocation-offer.service";
 import { AllocationService } from "./allocation.service";
+import { TepService } from "./tep.service";
 
 export class AllocationExpirationWorker {
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly allocationService: AllocationService,
-    private readonly offerService: AllocationOfferService
+    private readonly offerService: AllocationOfferService,
+    private readonly tepService: TepService
   ) {}
 
   start() {
@@ -33,7 +35,11 @@ export class AllocationExpirationWorker {
     this.timer = null;
   }
 
-  private async processExpiredOffers() {
-    // We'll implement the actual expiration lookup next.
+  async processExpiredOffers() {
+    const expiredBookings = await this.offerService.expirePendingOffers();
+
+    for (const bookingId of expiredBookings) {
+      await this.tepService.advanceTier(bookingId);
+    }
   }
 }

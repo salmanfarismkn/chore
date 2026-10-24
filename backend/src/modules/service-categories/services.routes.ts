@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { ServicesRepository } from "./services.repository";
 import { ServicesService } from "./services.service";
 import { createServiceSchema } from "./services.schema";
+import type { AuthUser } from "../auth/auth.types";
 
 export async function registerServiceRoutes(
   app: FastifyInstance
@@ -13,7 +14,11 @@ export async function registerServiceRoutes(
   const service =
     new ServicesService(repository);
 
-  app.post("/", async (request, reply) => {
+  app.post("/", { preHandler: [app.authenticate] }, async (request, reply) => {
+    if ((request.user as AuthUser).role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     const parsed =
       createServiceSchema.safeParse(request.body);
 
@@ -27,11 +32,11 @@ export async function registerServiceRoutes(
     return reply.status(201).send(result);
   });
 
-  app.get("/", async () => {
+  app.get("/", { preHandler: [app.authenticate] }, async () => {
     return service.getAllServices();
   });
 
-  app.get("/:id", async (request, reply) => {
+  app.get("/:id", { preHandler: [app.authenticate] }, async (request, reply) => {
     const { id } =
       request.params as { id: string };
 

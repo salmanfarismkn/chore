@@ -12,15 +12,13 @@ export class AllocationRecoveryService {
   ) {}
 
   async recoverBooking(bookingId: number): Promise<void> {
-    const booking = await (this.bookingsRepository as any).getBooking(
-      bookingId
-    );
+    const booking = await this.bookingsRepository.getAllocationState(bookingId);
 
     if (!booking) {
       return;
     }
 
-    if (booking.status !== "allocating") {
+    if (booking.status !== "ALLOCATING") {
       return;
     }
 

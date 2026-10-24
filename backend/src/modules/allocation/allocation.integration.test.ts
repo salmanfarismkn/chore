@@ -142,6 +142,18 @@ describe("Allocation integration", () => {
     expect(customerAccept.statusCode).toBe(403);
   });
 
+  it("rejects anonymous access to protected user and worker data", async () => {
+    for (const url of [
+      "/v1/users",
+      "/v1/workers",
+      "/v1/worker-services",
+      "/v1/service-categories",
+    ]) {
+      const response = await app.inject({ method: "GET", url });
+      expect(response.statusCode).toBe(401);
+    }
+  });
+
   it("allocates a booking and assigns the accepted worker", async () => {
     const createResponse = await app.inject({
       method: "POST",
@@ -203,5 +215,41 @@ describe("Allocation integration", () => {
     expect(booking).toBeDefined();
     expect(booking.workerId).toBe(workerId);
     expect(booking.status).toBe("ASSIGNED");
+  });
+
+  it("marks a booking allocation as failed when no workers are eligible", async () => {
+    const [serviceWithoutWorkers] = await db
+      .insert(serviceCategories)
+      .values({
+        name: `No Worker Service ${randomUUID()}`,
+        description: "No eligible worker regression fixture",
+        basePrice: "50.00",
+        estimatedDurationMinutes: 30,
+      })
+      .returning({ id: serviceCategories.id });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/bookings",
+      headers: {
+        authorization: `Bearer ${customerToken}`,
+        "idempotency-key": `no-worker-${randomUUID()}`,
+      },
+      payload: {
+        customerId,
+        serviceCategoryId: serviceWithoutWorkers.id,
+        pickupLatitude: 23.2599,
+        pickupLongitude: 77.4126,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+
+    const [booking] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, response.json().id));
+
+    expect(booking.status).toBe("ALLOCATION_FAILED");
   });
 });

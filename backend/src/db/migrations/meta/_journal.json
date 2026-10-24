@@ -64,6 +64,13 @@
       "when": 1789105087242,
       "tag": "0008_worthless_stardust",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792848000000,
+      "tag": "0009_add_allocation_terminal_statuses",
+      "breakpoints": true
     }
   ]
 }

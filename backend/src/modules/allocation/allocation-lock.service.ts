@@ -15,7 +15,8 @@ export class AllocationLockService {
       key,
       workerId.toString(),
       {
-        NX: true, 
+        NX: true,
+        EX: 60,
       }
     );
 

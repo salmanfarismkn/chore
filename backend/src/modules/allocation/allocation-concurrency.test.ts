@@ -3,6 +3,7 @@ import { AllocationAcceptanceService } from "./allocation-acceptance.service";
 import { AllocationAssignmentService } from "./allocation-assignment.service";
 import { AllocationLockService } from "./allocation-lock.service";
 import { redis } from "../../config/redis";
+import { AllocationOfferService } from "./allocation-offer.service";
 
 describe("Allocation winner concurrency", () => {
   const lockService = new AllocationLockService();
@@ -171,5 +172,26 @@ describe("Allocation winner concurrency", () => {
     const correctRelease = await lockService.releaseWinner(bookingId, winner);
     expect(correctRelease).toBe(true);
     expect(await lockService.getWinner(bookingId)).toBeNull();
+  });
+
+  it("expires pending offers so the tier can progress", async () => {
+    const bookingId = createBookingId();
+    const workerId = 303;
+    const offerKey = `booking:${bookingId}:offer:${workerId}`;
+    offerKeys.push(offerKey);
+
+    await redis.hSet(offerKey, {
+      bookingId: bookingId.toString(),
+      workerId: workerId.toString(),
+      tier: "tier_1",
+      status: "pending",
+      expiresAt: (Date.now() - 1).toString(),
+    });
+    await redis.sAdd(`booking:${bookingId}:allocation:offers`, offerKey);
+
+    const expired = await new AllocationOfferService().expirePendingOffers();
+
+    expect(expired.has(bookingId)).toBe(true);
+    expect((await redis.hGetAll(offerKey)).status).toBe("expired");
   });
 });

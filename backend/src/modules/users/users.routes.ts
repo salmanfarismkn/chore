@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { UsersRepository } from "./users.repository";
 import { UsersService } from "./users.service";
 import { createUserSchema } from "./users.schema";
+import type { AuthUser } from "../auth/auth.types";
 
 export async function registerUserRoutes(
   server: FastifyInstance
@@ -10,7 +11,11 @@ export async function registerUserRoutes(
   const usersRepository = new UsersRepository();
   const usersService = new UsersService(usersRepository);
 
-  server.post("/", async (request, reply) => {
+  server.post("/", { preHandler: [server.authenticate] }, async (request, reply) => {
+    if ((request.user as AuthUser).role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     const result = createUserSchema.safeParse(request.body);
 
     if (!result.success) {
@@ -25,14 +30,24 @@ export async function registerUserRoutes(
     return reply.status(201).send(user);
   });
 
-  server.get("/", async () => {
+  server.get("/", { preHandler: [server.authenticate] }, async (request, reply) => {
+    if ((request.user as AuthUser).role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     return usersService.getAllUsers();
   });
 
-  server.get("/:id", async (request, reply) => {
+  server.get("/:id", { preHandler: [server.authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const actor = request.user as AuthUser;
+    const userId = Number(id);
 
-    const user = await usersService.getUserById(Number(id));
+    if (actor.role !== "admin" && actor.userId !== userId) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
+    const user = await usersService.getUserById(userId);
 
     if (!user) {
       return reply.status(404).send({

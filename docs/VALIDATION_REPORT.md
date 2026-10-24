@@ -70,3 +70,34 @@ k6 run -e BASE_URL=http://localhost:3300/v1 -e CUSTOMER_ID=4 -e SERVICE_CATEGORY
 5. Resolve why the existing Compose backend is restarting, then verify stable container health and readiness without recreating existing data volumes.
 
 **Cleanup:** The test-mode API was stopped. Only the two disposable `--rm` validation containers were stopped; they had no volumes. Existing Compose containers and volumes were left untouched.
+
+## Targeted P0 Remediation Validation
+
+**Date:** 2026-10-24
+
+All validation below used disposable PostgreSQL and Redis containers on ports `55432` and `56379`, with no mounted volumes. No shared database volume, shared Redis database, `FLUSHDB`, `FLUSHALL`, or Compose volume cleanup was used.
+
+| Command / check | Result |
+| --- | --- |
+| `pnpm db:migrate` against disposable PostgreSQL 16 | PASS; migration `0009_add_allocation_terminal_statuses` applied from a clean database. |
+| Query `pg_enum` for `booking_status` | PASS; `ACCEPTED` and `ALLOCATION_FAILED` present alongside every application status. |
+| `pnpm build` from `backend` | PASS; TypeScript compilation completed after the final lease guard. |
+| `pnpm exec vitest run` with isolated PostgreSQL and Redis | PASS; 6 files, 81 passed, 0 failed, 0 skipped. |
+| `pnpm exec turbo run check-types --ui=stream` | PASS; workspace type-check completed. Backend remains validated separately by `pnpm build`. |
+| No eligible worker integration scenario | PASS; persisted booking status was `ALLOCATION_FAILED`. |
+| Expired offer regression | PASS; pending offer became `expired` and no stale winner was created. |
+| Anonymous user/worker data access regression | PASS; `/v1/users`, `/v1/workers`, `/v1/worker-services`, and `/v1/service-categories` returned `401`. |
+| Process interruption/restart recovery | NOT VERIFIED; implementation is lease-aware and started from app lifecycle, but no process-kill scenario was executed. |
+| Real PostgreSQL assignment failure injection and simultaneous HTTP acceptance | NOT VERIFIED; existing compensation test exercises repository failure, not a live database outage or HTTP race. |
+| Bounded k6 baseline | NOT RERUN; the prior 30-second baseline remains historical evidence, not a new remediation result. |
+
+### Release Decision
+
+| P0 blocker | Status |
+| --- | --- |
+| Database/lifecycle consistency | PASS |
+| Allocation terminal states | NOT VERIFIED |
+| Route security | PASS for implemented authorization; production authentication integration remains FAIL |
+| Redis/PostgreSQL consistency | NOT VERIFIED |
+
+The release is **not release-ready**. Production authentication, end-to-end recovery, and live cross-store failure/race validation remain unresolved.

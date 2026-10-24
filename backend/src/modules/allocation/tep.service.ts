@@ -79,6 +79,8 @@ export class TepService {
         );
 
         if (tiers.length === 0) {
+          await this.bookingsRepository.markAllocationFailed(bookingId);
+
           return {
             allocated: false,
             reason: "no_workers_available",
@@ -185,6 +187,7 @@ export class TepService {
 
     await this.bookingsRepository.moveToNextAllocationTier(
       bookingId,
+      tier,
       tier
     );
 
@@ -202,6 +205,23 @@ export class TepService {
   }
 
   async advanceTier(bookingId: number) {
+    const acquired = await this.allocationLeaseService.acquire(
+      bookingId,
+      INSTANCE_ID
+    );
+
+    if (!acquired) {
+      return null;
+    }
+
+    try {
+      return await this.advanceTierOnce(bookingId);
+    } finally {
+      await this.allocationLeaseService.release(bookingId, INSTANCE_ID);
+    }
+  }
+
+  private async advanceTierOnce(bookingId: number) {
     const booking =
       await this.bookingsRepository.getAllocationState(
         bookingId
@@ -212,6 +232,10 @@ export class TepService {
     }
 
     if (booking.status !== "ALLOCATING") {
+      return null;
+    }
+
+    if (await this.offerService.hasActiveOffers(bookingId, booking.allocationTier)) {
       return null;
     }
 
@@ -251,7 +275,8 @@ export class TepService {
       await this.bookingsRepository
         .moveToNextAllocationTier(
           bookingId,
-          nextTierNumber
+          nextTierNumber,
+          booking.allocationTier
         );
 
     if (!updated) {
@@ -326,7 +351,8 @@ export class TepService {
 
     const updated = await this.bookingsRepository.moveToNextAllocationTier(
       bookingId,
-      nextTierNumber
+      nextTierNumber,
+      booking.allocationTier
     );
 
     if (!updated) return;
@@ -338,9 +364,7 @@ export class TepService {
     bookingId: number,
     tier: number
   ): Promise<void> {
-    const booking = await (this.bookingsRepository as any).getBooking(
-          bookingId
-        );
+    const booking = await this.bookingsRepository.getAllocationState(bookingId);
 
     if (!booking) {
       return;
@@ -357,6 +381,19 @@ export class TepService {
       return;
     }
 
-    await this.startTier(bookingId, tier);
+    const acquired = await this.allocationLeaseService.acquire(
+      bookingId,
+      INSTANCE_ID
+    );
+
+    if (!acquired) {
+      return;
+    }
+
+    try {
+      await this.startTier(bookingId, tier);
+    } finally {
+      await this.allocationLeaseService.release(bookingId, INSTANCE_ID);
+    }
   }
 }
