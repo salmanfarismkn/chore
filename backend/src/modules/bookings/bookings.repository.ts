@@ -100,10 +100,12 @@ export class BookingsRepository {
       | "PENDING"
       | "ALLOCATING"
       | "ASSIGNED"
+      | "ACCEPTED"
       | "EN_ROUTE"
       | "WORKING"
       | "COMPLETED"
       | "CANCELLED"
+      | "ALLOCATION_FAILED"
   ) {
     const existing = await this.findBookingById(bookingId);
 
@@ -176,7 +178,8 @@ export class BookingsRepository {
 
   async moveToNextAllocationTier(
     bookingId: number,
-    nextTier: number
+    nextTier: number,
+    currentTier: number
   ) {
     const [booking] = await db
       .update(bookings)
@@ -187,7 +190,8 @@ export class BookingsRepository {
       .where(
         and(
           eq(bookings.id, bookingId),
-          eq(bookings.status, "ALLOCATING")
+          eq(bookings.status, "ALLOCATING"),
+          eq(bookings.allocationTier, currentTier)
         )
       )
       .returning();
@@ -199,7 +203,7 @@ export class BookingsRepository {
     const [booking] = await db
       .update(bookings)
       .set({
-        status: "CANCELLED",
+        status: "ALLOCATION_FAILED",
         updatedAt: new Date(),
       })
       .where(

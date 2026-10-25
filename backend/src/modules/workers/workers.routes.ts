@@ -5,6 +5,7 @@ import { UsersRepository } from "../users/users.repository";
 import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
 import { createWorkerSchema } from "./workers.schema";
+import type { AuthUser } from "../auth/auth.types";
 
 export async function registerWorkerRoutes(
   server: FastifyInstance
@@ -20,7 +21,11 @@ export async function registerWorkerRoutes(
       usersRepository
     );
 
-  server.post("/", async (request, reply) => {
+  server.post("/", { preHandler: [server.authenticate] }, async (request, reply) => {
+    if ((request.user as AuthUser).role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     const result =
       createWorkerSchema.safeParse(request.body);
 
@@ -37,18 +42,24 @@ export async function registerWorkerRoutes(
     return reply.status(201).send(worker);
   });
 
-  server.get("/", async () => {
+  server.get("/", { preHandler: [server.authenticate] }, async (request, reply) => {
+    if ((request.user as AuthUser).role !== "admin") {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     return workersService.getAllWorkers();
   });
 
-  server.get("/:id", async (request, reply) => {
+  server.get("/:id", { preHandler: [server.authenticate] }, async (request, reply) => {
     const { id } = request.params as {
       id: string;
     };
 
+    const actor = request.user as AuthUser;
+    const workerId = Number(id);
     const worker =
       await workersService.getWorkerById(
-        Number(id)
+        workerId
       );
 
     if (!worker) {
@@ -57,12 +68,25 @@ export async function registerWorkerRoutes(
       });
     }
 
+    if (actor.role !== "admin" && actor.userId !== worker.userId) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
+
     return worker;
   });
-  server.patch("/:id", async (request, reply) => {
+  server.patch("/:id", { preHandler: [server.authenticate] }, async (request, reply) => {
     const { id } = request.params as {
         id: string;
     };
+
+    const existing = await workersService.getWorkerById(Number(id));
+    const actor = request.user as AuthUser;
+    if (!existing) {
+      return reply.status(404).send({ message: "Worker not found" });
+    }
+    if (actor.role !== "admin" && actor.userId !== existing.userId) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
 
     const worker =
         await workersService.updateWorker(
@@ -73,10 +97,19 @@ export async function registerWorkerRoutes(
     return reply.send(worker);
   });
   
-  server.delete("/:id", async (request, reply) => {
+  server.delete("/:id", { preHandler: [server.authenticate] }, async (request, reply) => {
     const { id } = request.params as {
         id: string;
     };
+
+    const existing = await workersService.getWorkerById(Number(id));
+    const actor = request.user as AuthUser;
+    if (!existing) {
+      return reply.status(404).send({ message: "Worker not found" });
+    }
+    if (actor.role !== "admin" && actor.userId !== existing.userId) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
 
     const worker =
         await workersService.deleteWorker(

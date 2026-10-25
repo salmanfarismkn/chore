@@ -12,17 +12,6 @@ export class AllocationAcceptanceService {
   ): Promise<boolean> {
     const offerKey = `booking:${bookingId}:offer:${workerId}`;
     const winnerKey = `booking:${bookingId}:allocation:winner`;
-    console.log("ACCEPT DEBUG", {
-      bookingId,
-      workerId,
-      offerKey,
-      winnerKey,
-    });
-
-    console.log(
-      "OFFER DATA",
-      await redis.hGetAll(offerKey)
-    );
     const result = await redis.eval(
       `
         local offerWorker = redis.call("HGET", KEYS[1], "workerId")
@@ -53,7 +42,7 @@ export class AllocationAcceptanceService {
           return 0
         end
 
-        local winner = redis.call("SET", KEYS[2], ARGV[1], "NX")
+        local winner = redis.call("SET", KEYS[2], ARGV[1], "NX", "EX", "60")
 
         if not winner then
           return 0
@@ -68,9 +57,6 @@ export class AllocationAcceptanceService {
         arguments: [workerId.toString()],
       }
     );
-    console.log("ACCEPT LUA RESULT:", result);
-    console.log(await redis.get("booking:1:allocation:winner"));
-
     return result === 1;
   }
 

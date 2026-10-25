@@ -20,6 +20,7 @@ import authPlugin from "./plugins/auth";
 import { registerAuthRoutes } from "./modules/auth/auth.routes";
 import swaggerPlugin from "./plugins/swagger";
 import { registerRoutes } from "./routes";
+import { startAllocationRecoveryWorker } from "./modules/allocation/allocation-recovery.worker";
 
 export function buildApp() {
   const app = Fastify({
@@ -32,9 +33,16 @@ export function buildApp() {
 
   registerErrorHandler(app);
 
+  let stopAllocationRecoveryWorker: (() => void) | undefined;
+
   app.addHook("onReady", async () => {
     await connectRedis();
     initializeSocket(app.server, app);
+    stopAllocationRecoveryWorker = startAllocationRecoveryWorker();
+  });
+
+  app.addHook("onClose", async () => {
+    stopAllocationRecoveryWorker?.();
   });
 
   app.register(helmet);

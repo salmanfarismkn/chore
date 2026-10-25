@@ -11,7 +11,7 @@ import { AllocationRecoveryService } from "./allocation-recovery.service";
 import { AllocationRepository } from "./allocation.repository";
 import { AllocationLeaseService } from "./allocation-lease.service";
 
-export function startAllocationRecoveryWorker(): void {
+export function startAllocationRecoveryWorker(): () => void {
   const bookingsRepository = new BookingsRepository();
   const allocationLockService =
     new AllocationLockService();
@@ -42,7 +42,7 @@ export function startAllocationRecoveryWorker(): void {
       tepService
     );
 
-  setInterval(async () => {
+  const timer = setInterval(async () => {
     try {
       const activeBookings = await db
         .select({
@@ -63,4 +63,6 @@ export function startAllocationRecoveryWorker(): void {
       );
     }
   }, 30_000);
+
+  return () => clearInterval(timer);
 }

@@ -56,6 +56,11 @@ export class AllocationOfferService {
       expiresAt: expiresAt.getTime().toString(),
       status: "pending",
     });
+
+    await redis.sAdd(
+      `booking:${bookingId}:allocation:offers`,
+      offerKey
+    );
     
     emitWorkerOffer({
       bookingId,
@@ -141,12 +146,15 @@ export class AllocationOfferService {
           return 0
         end
 
-        if lockWorker ~= ARGV[1] then
+        if lockWorker and lockWorker ~= ARGV[1] then
           return 0
         end
 
         redis.call("HSET", KEYS[1], "status", "expired")
-        redis.call("DEL", KEYS[2])
+
+        if lockWorker == ARGV[1] then
+          redis.call("DEL", KEYS[2])
+        end
 
         return 1
       `,
@@ -173,21 +181,55 @@ export class AllocationOfferService {
     bookingId: number,
     tier: number
   ): Promise<boolean> {
-    const key =
-      `allocation:booking:${bookingId}:tier:${tier}:offers`;
-
-    const offerKeys = await redis.sMembers(key);
+    const offerKeys = await redis.sMembers(
+      `booking:${bookingId}:allocation:offers`
+    );
 
     for (const offerKey of offerKeys) {
       const offer = await redis.hGetAll(offerKey);
 
-      if (offer.status === "pending") {
+      if (
+        offer.status === "pending" &&
+        (offer.tier === String(tier) || offer.tier === `tier_${tier}`)
+      ) {
         return true;
       }
 
-      await redis.sRem(key, offerKey);
+      if (offer.status !== "pending") {
+        await redis.sRem(
+          `booking:${bookingId}:allocation:offers`,
+          offerKey
+        );
+      }
     }
 
     return false;
+  }
+
+  async expirePendingOffers(): Promise<Set<number>> {
+    const expiredBookings = new Set<number>();
+    const keys = await redis.keys("booking:*:offer:*");
+
+    for (const offerKey of keys) {
+      const offer = await redis.hGetAll(offerKey);
+      if (offer.status !== "pending" || Number(offer.expiresAt) > Date.now()) {
+        continue;
+      }
+
+      const [, bookingIdValue, , workerIdValue] = offerKey.split(":");
+      const bookingId = Number(bookingIdValue);
+      const workerId = Number(workerIdValue);
+      const expired = await this.expireOffer(bookingId, workerId);
+
+      if (expired) {
+        expiredBookings.add(bookingId);
+        await redis.sRem(
+          `booking:${bookingId}:allocation:offers`,
+          offerKey
+        );
+      }
+    }
+
+    return expiredBookings;
   }
 }

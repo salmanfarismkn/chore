@@ -72,3 +72,29 @@
 - Corrected worker presence updates to target profiles by user ID.
 - Scoped Vitest to backend source tests, made integration fixture IDs collision-resistant, and replaced Redis `FLUSHDB` test cleanup with per-test key deletion.
 - Removed the predictable JWT secret fallback from the existing Compose edit without altering the other pre-existing Compose changes.
+
+## P0 Remediation Update
+
+**Validation date:** 2026-10-24
+
+The targeted remediation added migration `0009_add_allocation_terminal_statuses`, which safely adds `ACCEPTED` and `ALLOCATION_FAILED` with `ADD VALUE IF NOT EXISTS`. `markAllocationFailed` now persists `ALLOCATION_FAILED`. A clean disposable PostgreSQL 16 database accepted the complete migration chain, and the resulting enum contained all nine application lifecycle values: `PENDING`, `ALLOCATING`, `ASSIGNED`, `ACCEPTED`, `EN_ROUTE`, `WORKING`, `COMPLETED`, `CANCELLED`, and `ALLOCATION_FAILED`.
+
+Allocation now marks no-worker bookings as `ALLOCATION_FAILED`, tracks offer keys, expires pending offers, advances only after the current tier is exhausted, bounds winner locks, and starts expiry/recovery workers from the application lifecycle. Tier advancement and recovery resume honor the existing allocation lease. Focused regressions cover offer expiry, no-worker terminal failure, Redis rollback, and protected data endpoints.
+
+User, worker, worker-service, and service-category endpoints now require JWT authentication. User and worker reads/mutations enforce admin or resource ownership as appropriate; worker-service mutations and worker-scoped reads enforce admin or owning-worker access. The only JWT issuance route remains test-only. No production login, refresh, or verified phone-auth integration exists, so production authentication remains a release blocker and was not invented in this remediation.
+
+Redis winner claims now have a bounded TTL and assignment failure compensation restores an unexpired offer or expires it. This is recoverable compensation, not cross-store atomicity. A real PostgreSQL failure-injection test and simultaneous HTTP acceptance race remain unverified.
+
+### P0 Status
+
+| Blocker | Status | Evidence / unresolved boundary |
+| --- | --- | --- |
+| Database enum and lifecycle consistency | PASS | Migration applied to clean disposable PostgreSQL; all nine lifecycle values verified. |
+| No-worker terminal failure | PASS | Isolated integration test persists `ALLOCATION_FAILED`. |
+| Offer expiry and tier progression | NOT VERIFIED | Expiry and lease-guarded progression are implemented; an end-to-end multi-tier expiry run is still needed. |
+| Interrupted-process recovery | NOT VERIFIED | Recovery worker is started and lease-aware; no process-kill/restart scenario was executed. |
+| User/worker route authorization | PASS | Complete isolated suite includes anonymous rejection for protected user/worker data routes; ownership/admin guards are in place. |
+| Production authentication issuance | FAIL | No production login/refresh/verified identity integration exists; `/test-token` remains test-only. |
+| Redis/PostgreSQL assignment consistency | NOT VERIFIED | Compensation and bounded locks are covered by tests, but real PostgreSQL failure injection and HTTP-level acceptance races were not run; no atomicity is claimed. |
+
+The project remains **NO-GO** while any P0 row is `FAIL` or `NOT VERIFIED`.
