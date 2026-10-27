@@ -2,6 +2,10 @@ import { execSync } from "node:child_process";
 import postgres from "postgres";
 
 const ensureTestSchema = async () => {
+  if (process.env.SKIP_TEST_DB_SETUP === "1") {
+    return;
+  }
+
   const databaseUrl = process.env.DATABASE_URL;
 
   if (!databaseUrl) {

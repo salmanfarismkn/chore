@@ -5,6 +5,7 @@ import { workerProfiles } from "../../db/schema";
 
 import type {
   CreateWorkerInput,
+  UpdateWorkerInput,
   WorkerResponse,
 } from "./workers.types";
 
@@ -61,7 +62,7 @@ export class WorkersRepository {
   
   async updateWorker(
     id: number,
-    data: Partial<CreateWorkerInput>
+    data: UpdateWorkerInput
   ) {
     const [worker] = await db
       .update(workerProfiles)
