@@ -4,7 +4,11 @@ import { UsersRepository } from "../users/users.repository";
 
 import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
-import { createWorkerSchema } from "./workers.schema";
+import {
+  adminUpdateWorkerSchema,
+  createWorkerSchema,
+  updateWorkerSchema,
+} from "./workers.schema";
 import type { AuthUser } from "../auth/auth.types";
 
 export async function registerWorkerRoutes(
@@ -88,11 +92,23 @@ export async function registerWorkerRoutes(
       return reply.status(403).send({ message: "Forbidden" });
     }
 
-    const worker =
-        await workersService.updateWorker(
-            Number(id),
-            request.body as any
-        );
+    const schema =
+      actor.role === "admin"
+        ? adminUpdateWorkerSchema
+        : updateWorkerSchema;
+    const result = schema.safeParse(request.body);
+
+    if (!result.success) {
+      return reply.status(400).send({
+        message: "Invalid request body",
+        errors: result.error.flatten(),
+      });
+    }
+
+    const worker = await workersService.updateWorker(
+      Number(id),
+      result.data
+    );
 
     return reply.send(worker);
   });

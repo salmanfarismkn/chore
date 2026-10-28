@@ -6,6 +6,7 @@ import { WorkersRepository } from "./workers.repository";
 
 import type {
   CreateWorkerInput,
+  UpdateWorkerInput,
   WorkerResponse,
 } from "./workers.types";
 
@@ -48,7 +49,7 @@ export class WorkersService {
   
   async updateWorker(
     id: number,
-    data: Partial<CreateWorkerInput>
+    data: UpdateWorkerInput
   ) {
     const worker =
       await this.workersRepository.findWorkerById(id);

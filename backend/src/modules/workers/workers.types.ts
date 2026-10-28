@@ -3,6 +3,11 @@ export interface CreateWorkerInput {
   bio: string;
 }
 
+export interface UpdateWorkerInput {
+  bio?: string;
+  status?: "offline" | "available" | "busy" | "suspended";
+}
+
 export interface WorkerResponse {
   id: number;
   userId: number;
