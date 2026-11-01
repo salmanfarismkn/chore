@@ -55,10 +55,6 @@ export function initializeSocket(
   });
 
   io.on("connection", (socket) => {
-    console.log(
-      `Authenticated socket connected: ${socket.id}`
-    );
-
     registerWorkerSocket(socket);
 
     socket.on("disconnect", () => {

@@ -57,10 +57,6 @@ export function startAllocationRecoveryWorker(): () => void {
         );
       }
     } catch (error) {
-      console.error(
-        "Allocation recovery failed:",
-        error
-      );
     }
   }, 30_000);
 

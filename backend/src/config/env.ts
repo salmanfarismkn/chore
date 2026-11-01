@@ -32,6 +32,17 @@ const envSchema = z.object({
   CORS_ORIGIN: z
     .string()
     .default("http://localhost:5173"),
+
+  TRUST_PROXY: z
+    .string()
+    .default("false"),
+
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_AUTH_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_BOOKING_MAX: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_BOOKING_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_ACCEPTANCE_MAX: z.coerce.number().int().positive().default(30),
+  RATE_LIMIT_ACCEPTANCE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 const parsed = envSchema.safeParse(process.env);

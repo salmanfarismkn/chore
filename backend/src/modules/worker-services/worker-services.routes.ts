@@ -7,6 +7,7 @@ import { createWorkerServiceSchema } from "./worker-services.schema";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
 import type { AuthUser } from "../auth/auth.types";
+import { parsePositiveInteger } from "../../shared/validators/positive-integer";
 
 export async function registerWorkerServiceRoutes(
   app: FastifyInstance
@@ -63,7 +64,10 @@ export async function registerWorkerServiceRoutes(
     };
 
     const actor = request.user as AuthUser;
-    const requestedWorkerId = Number(workerId);
+    const requestedWorkerId = parsePositiveInteger(workerId);
+    if (requestedWorkerId === null) {
+      return reply.status(400).send({ message: "Invalid worker id" });
+    }
     if (actor.role !== "admin" && actor.userId !== requestedWorkerId) {
       return reply.status(403).send({ message: "Forbidden" });
     }
@@ -71,13 +75,17 @@ export async function registerWorkerServiceRoutes(
     return workerServicesService.getServicesForWorker(requestedWorkerId);
   });
 
-  app.get("/service/:serviceId", { preHandler: [app.authenticate] }, async (request) => {
+  app.get("/service/:serviceId", { preHandler: [app.authenticate] }, async (request, reply) => {
     const { serviceId } = request.params as {
       serviceId: string;
     };
+    const parsedServiceId = parsePositiveInteger(serviceId);
+    if (parsedServiceId === null) {
+      return reply.status(400).send({ message: "Invalid service id" });
+    }
 
     return workerServicesService.getWorkersForService(
-      Number(serviceId)
+      parsedServiceId
     );
   });
 }

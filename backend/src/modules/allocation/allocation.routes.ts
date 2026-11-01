@@ -4,6 +4,16 @@ import { AllocationAssignmentService } from "./allocation-assignment.service";
 import { AllocationOfferService } from "./allocation-offer.service";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import type { AuthUser } from "../auth/auth.types";
+import { env } from "../../config/env";
+import { parsePositiveInteger } from "../../shared/validators/positive-integer";
+import { z } from "zod";
+
+const offerSchema = z.object({
+  userId: z.number().int().positive().optional(),
+  workerId: z.number().int().positive().optional(),
+  tier: z.string().trim().min(1).max(50),
+  ttlSeconds: z.number().int().min(1).max(3600),
+}).refine((value) => value.userId !== undefined || value.workerId !== undefined);
 
 export async function registerAllocationRoutes(app: FastifyInstance) {
   const acceptanceService = new AllocationAcceptanceService();
@@ -23,24 +33,27 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
     }
 
     const { bookingId } = request.params as { bookingId: string };
-    const body = request.body as {
-      userId?: number;
-      workerId?: number;
-      tier?: string;
-      ttlSeconds?: number;
-    };
-
-    const workerId = body.userId ?? body.workerId;
-
-    if (!workerId || !body.tier || !body.ttlSeconds) {
-      return reply.status(400).send({ message: "Missing required fields" });
+    const parsedBookingId = parsePositiveInteger(bookingId);
+    if (parsedBookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
+    const parsed = offerSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        message: "Invalid request body",
+        errors: parsed.error.flatten(),
+      });
+    }
+    const workerId = parsed.data.userId ?? parsed.data.workerId;
+    if (workerId === undefined) {
+      return reply.status(400).send({ message: "Missing worker id" });
     }
 
     const offer = await offerService.createOffer(
-      Number(bookingId),
+      parsedBookingId,
       workerId,
-      body.tier,
-      body.ttlSeconds
+      parsed.data.tier,
+      parsed.data.ttlSeconds
     );
 
     if (!offer) {
@@ -52,6 +65,12 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
 
   app.post("/bookings/:bookingId/accept", {
     preHandler: [app.authenticate],
+    config: {
+      rateLimit: {
+        max: env.RATE_LIMIT_ACCEPTANCE_MAX,
+        timeWindow: env.RATE_LIMIT_ACCEPTANCE_WINDOW_MS,
+      },
+    },
   }, async (request, reply) => {
     const actor = request.user as AuthUser;
 
@@ -60,11 +79,15 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
     }
 
     const { bookingId } = request.params as { bookingId: string };
+    const parsedBookingId = parsePositiveInteger(bookingId);
+    if (parsedBookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
     const workerId = actor.userId;
 
     try {
       const accepted = await assignmentService.acceptOffer(
-        Number(bookingId),
+        parsedBookingId,
         workerId
       );
 
