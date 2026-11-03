@@ -16,6 +16,8 @@ import { IdempotencyRepository } from "../idempotency/idempotency.repository";
 import { IdempotencyService } from "../idempotency/idempotency.service";
 import type { AuthUser } from "../auth/auth.types";
 import { AllocationExpirationWorker } from "../allocation/allocation-expiration.worker";
+import { env } from "../../config/env";
+import { parsePositiveInteger } from "../../shared/validators/positive-integer";
 
 export async function registerBookingRoutes(
   app: FastifyInstance
@@ -93,6 +95,12 @@ export async function registerBookingRoutes(
     "/",
     {
       preHandler: [app.authenticate],
+      config: {
+        rateLimit: {
+          max: env.RATE_LIMIT_BOOKING_MAX,
+          timeWindow: env.RATE_LIMIT_BOOKING_WINDOW_MS,
+        },
+      },
     },
     async (request, reply) => {
       const user = request.user as {
@@ -176,18 +184,21 @@ export async function registerBookingRoutes(
         customerId: string;
       };
 
-    const requestedCustomerId = Number(customerId);
+    const parsedCustomerId = parsePositiveInteger(customerId);
+    if (parsedCustomerId === null) {
+      return reply.status(400).send({ message: "Invalid customer id" });
+    }
 
     const user = request.user as AuthUser;
 
     if (
       user.role !== "admin" &&
-      (user.role !== "customer" || user.userId !== requestedCustomerId)
+      (user.role !== "customer" || user.userId !== parsedCustomerId)
     ) {
       return reply.status(403).send({ message: "Forbidden" });
     }
 
-    return bookingsService.getCustomerBookings(requestedCustomerId);
+    return bookingsService.getCustomerBookings(parsedCustomerId);
   });
 
   app.get("/worker/:workerId", {
@@ -198,32 +209,52 @@ export async function registerBookingRoutes(
         workerId: string;
       };
 
-    const requestedWorkerId = Number(workerId);
+    const parsedWorkerId = parsePositiveInteger(workerId);
+    if (parsedWorkerId === null) {
+      return reply.status(400).send({ message: "Invalid worker id" });
+    }
 
     const user = request.user as AuthUser;
 
     if (
       user.role !== "admin" &&
-      (user.role !== "worker" || user.userId !== requestedWorkerId)
+      (user.role !== "worker" || user.userId !== parsedWorkerId)
     ) {
       return reply.status(403).send({ message: "Forbidden" });
     }
 
-    return bookingsService.getWorkerBookings(requestedWorkerId);
+    return bookingsService.getWorkerBookings(parsedWorkerId);
   });
 
   app.post("/:id/cancel", {
     preHandler: [app.authenticate],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const bookingId = parsePositiveInteger(id);
+    if (bookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
     const user = request.user as {
       userId: number;
       role: Parameters<BookingsService["cancelBooking"]>[2];
     };
+    const booking = await bookingsRepository.findBookingById(bookingId);
+    if (!booking) {
+      return reply.status(404).send({ message: "Booking not found" });
+    }
+    if (
+      user.role !== "admin" &&
+      !(
+        (user.role === "customer" && booking.customerId === user.userId) ||
+        (user.role === "worker" && booking.workerId === user.userId)
+      )
+    ) {
+      return reply.status(403).send({ message: "Forbidden" });
+    }
 
     try {
       const booking = await bookingsService.cancelBooking(
-        Number(id),
+        bookingId,
         user.userId,   
         user.role      
       );
@@ -243,16 +274,20 @@ export async function registerBookingRoutes(
     preHandler: [app.authenticate],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const bookingId = parsePositiveInteger(id);
+    if (bookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
     const user = request.user as AuthUser;
     if (!(await authorizeAssignedWorker(
       user.userId,
       user.role,
-      Number(id),
+      bookingId,
       reply
     ))) return;
 
     return bookingsService.transitionBookingStatus(
-      Number(id),
+      bookingId,
       "ACCEPTED"
     );
   });
@@ -261,16 +296,20 @@ export async function registerBookingRoutes(
     preHandler: [app.authenticate],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const bookingId = parsePositiveInteger(id);
+    if (bookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
     const user = request.user as AuthUser;
     if (!(await authorizeAssignedWorker(
       user.userId,
       user.role,
-      Number(id),
+      bookingId,
       reply
     ))) return;
 
     return bookingsService.transitionBookingStatus(
-      Number(id),
+      bookingId,
       "EN_ROUTE"
     );
   });
@@ -279,16 +318,20 @@ export async function registerBookingRoutes(
     preHandler: [app.authenticate],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const bookingId = parsePositiveInteger(id);
+    if (bookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
     const user = request.user as AuthUser;
     if (!(await authorizeAssignedWorker(
       user.userId,
       user.role,
-      Number(id),
+      bookingId,
       reply
     ))) return;
 
     return bookingsService.transitionBookingStatus(
-      Number(id),
+      bookingId,
       "WORKING"
     );
   });
@@ -297,16 +340,20 @@ export async function registerBookingRoutes(
     preHandler: [app.authenticate],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const bookingId = parsePositiveInteger(id);
+    if (bookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
     const user = request.user as AuthUser;
     if (!(await authorizeAssignedWorker(
       user.userId,
       user.role,
-      Number(id),
+      bookingId,
       reply
     ))) return;
 
     return bookingsService.transitionBookingStatus(
-      Number(id),
+      bookingId,
       "COMPLETED"
     );
   });
@@ -318,9 +365,12 @@ export async function registerBookingRoutes(
       request.params as {
         id: string;
       };
-      
+    const bookingId = parsePositiveInteger(id);
+    if (bookingId === null) {
+      return reply.status(400).send({ message: "Invalid booking id" });
+    }
 
-    const booking = await bookingsService.getBooking(Number(id));
+    const booking = await bookingsService.getBooking(bookingId);
     const user = request.user as AuthUser;
     const canRead =
       user.role === "admin" ||

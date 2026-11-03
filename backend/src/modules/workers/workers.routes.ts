@@ -10,6 +10,7 @@ import {
   updateWorkerSchema,
 } from "./workers.schema";
 import type { AuthUser } from "../auth/auth.types";
+import { parsePositiveInteger } from "../../shared/validators/positive-integer";
 
 export async function registerWorkerRoutes(
   server: FastifyInstance
@@ -60,7 +61,10 @@ export async function registerWorkerRoutes(
     };
 
     const actor = request.user as AuthUser;
-    const workerId = Number(id);
+    const workerId = parsePositiveInteger(id);
+    if (workerId === null) {
+      return reply.status(400).send({ message: "Invalid worker id" });
+    }
     const worker =
       await workersService.getWorkerById(
         workerId
@@ -82,8 +86,12 @@ export async function registerWorkerRoutes(
     const { id } = request.params as {
         id: string;
     };
+    const workerId = parsePositiveInteger(id);
+    if (workerId === null) {
+      return reply.status(400).send({ message: "Invalid worker id" });
+    }
 
-    const existing = await workersService.getWorkerById(Number(id));
+    const existing = await workersService.getWorkerById(workerId);
     const actor = request.user as AuthUser;
     if (!existing) {
       return reply.status(404).send({ message: "Worker not found" });
@@ -106,7 +114,7 @@ export async function registerWorkerRoutes(
     }
 
     const worker = await workersService.updateWorker(
-      Number(id),
+      workerId,
       result.data
     );
 
@@ -117,8 +125,12 @@ export async function registerWorkerRoutes(
     const { id } = request.params as {
         id: string;
     };
+    const workerId = parsePositiveInteger(id);
+    if (workerId === null) {
+      return reply.status(400).send({ message: "Invalid worker id" });
+    }
 
-    const existing = await workersService.getWorkerById(Number(id));
+    const existing = await workersService.getWorkerById(workerId);
     const actor = request.user as AuthUser;
     if (!existing) {
       return reply.status(404).send({ message: "Worker not found" });
@@ -129,7 +141,7 @@ export async function registerWorkerRoutes(
 
     const worker =
         await workersService.deleteWorker(
-            Number(id)
+            workerId
         );
 
     return reply.send(worker);

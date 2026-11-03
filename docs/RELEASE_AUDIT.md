@@ -1,5 +1,25 @@
 # Pronto+ Backend Release Audit
 
+## 2026-11-01 Security Hardening Update
+
+**Verdict:** **Security hardening partially complete; not verified release-ready.** The HTTP authorization gaps for user, worker, worker-service, and booking owner/role paths have been checked with focused route tests. Explicit rate limiting is implemented without a global limit. Docker was unavailable in the validation environment, so Redis/PostgreSQL-backed integration and concurrency verification remains infrastructure-blocked.
+
+### Security changes verified
+
+- Added HTTP authorization regression coverage for administrator-only user/worker creation and listing, owner/admin user and worker detail access, owner/admin/other-worker profile deletion, cross-worker profile denial, worker-service ownership, and anonymous protected-route access.
+- Registered Fastify rate limiting with `global: false`. Conservative configurable limits cover test-token authentication, booking creation, and allocation acceptance. Health/readiness routes and normal presence behavior are not explicitly limited.
+- Default proxy trust is `false`; production deployments must set `TRUST_PROXY` only for the actual trusted proxy/hop configuration. No Redis-backed rate-limit store was added because the existing node-redis client is not the ioredis-compatible integration used by `@fastify/rate-limit`; this avoids introducing a second Redis client.
+- `/v1/auth/test-token` remains restricted to `NODE_ENV=test` and now validates its body. JWT verification failures return only `401 Unauthorized` without exposing verifier details.
+- Route parameter parsing rejects invalid/non-positive numeric IDs. Booking/workflow routes reject cross-owner cancellations and preserve existing authenticated 404 behavior for missing bookings/resources.
+- Removed routine route/socket/allocation/recovery console logging that could add unnecessary operational data.
+- CORS remains an exact origin allowlist from `CORS_ORIGIN` for both Fastify HTTP and Socket.IO; default is the local development origin.
+
+### Remaining security limitations
+
+- No production login/identity-issuance flow exists. `/v1/auth/test-token` is not available outside `NODE_ENV=test`; a real production authentication provider, token issuance, revocation, and server-side active-user/role validation still need implementation.
+- The explicit rate-limit store is process-local. It is not suitable as a distributed shared rate limiter across multiple backend instances. A future shared store should reuse the existing Redis integration without adding a second client or require an ioredis adapter.
+- The latest review found allocation and concurrency infrastructure outside this task remains unverified here. Docker was unavailable, so isolated Redis/PostgreSQL integration was not executed.
+
 **Audit date:** 2026-10-04  
 **Verdict:** **NO-GO for a public v1 release.** The exercised booking/allocation path now works, but material authorization, allocation recovery, and Redis/PostgreSQL consistency risks remain.
 

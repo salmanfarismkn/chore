@@ -4,6 +4,7 @@ import { ServicesRepository } from "./services.repository";
 import { ServicesService } from "./services.service";
 import { createServiceSchema } from "./services.schema";
 import type { AuthUser } from "../auth/auth.types";
+import { parsePositiveInteger } from "../../shared/validators/positive-integer";
 
 export async function registerServiceRoutes(
   app: FastifyInstance
@@ -39,10 +40,14 @@ export async function registerServiceRoutes(
   app.get("/:id", { preHandler: [app.authenticate] }, async (request, reply) => {
     const { id } =
       request.params as { id: string };
+    const serviceId = parsePositiveInteger(id);
+    if (serviceId === null) {
+      return reply.status(400).send({ message: "Invalid service id" });
+    }
 
     const result =
       await service.getServiceById(
-        Number(id)
+        serviceId
       );
 
     if (!result) {

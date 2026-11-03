@@ -170,10 +170,6 @@ export class AllocationOfferService {
 
     this.expirationTimers.delete(bookingId);
 
-    console.log(
-      `Allocation offer expired: booking=${bookingId}, worker=${workerId}`
-    );
-
     return true;
   }
 

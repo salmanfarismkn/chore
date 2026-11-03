@@ -2,6 +2,7 @@ import Fastify from "fastify";
 
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 
 import { env } from "./config/env";
 import { connectRedis } from "./config/redis";
@@ -22,10 +23,17 @@ import swaggerPlugin from "./plugins/swagger";
 import { registerRoutes } from "./routes";
 import { startAllocationRecoveryWorker } from "./modules/allocation/allocation-recovery.worker";
 
+function parseTrustProxy(value: string): boolean | number | string {
+  if (value === "false") return false;
+  if (value === "true") return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+}
+
 export function buildApp() {
   const app = Fastify({
     logger: true,
-    trustProxy: true,
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
     routerOptions: {
       ignoreTrailingSlash: true,
     },
@@ -54,8 +62,9 @@ export function buildApp() {
 
   app.register(jwtPlugin);
   app.register(authPlugin);
-
-  console.log("Authenticate is:", app.authenticate);
+  app.register(rateLimit, {
+    global: false,
+  });
 
   app.register(registerAuthRoutes, {
     prefix: "/v1/auth",

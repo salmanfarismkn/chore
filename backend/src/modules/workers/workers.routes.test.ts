@@ -4,6 +4,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../auth/auth.types";
 import { registerWorkerRoutes } from "./workers.routes";
 import { WorkersRepository } from "./workers.repository";
+import { UsersRepository } from "../users/users.repository";
 
 const app = Fastify();
 app.decorate(
@@ -46,12 +47,27 @@ describe("Worker profile updates", () => {
 
   const findWorker = vi.spyOn(WorkersRepository.prototype, "findWorkerById");
   const updateWorker = vi.spyOn(WorkersRepository.prototype, "updateWorker");
+  const findAllWorkers = vi.spyOn(WorkersRepository.prototype, "findAllWorkers");
+  const findWorkerByUserId = vi.spyOn(WorkersRepository.prototype, "findWorkerByUserId");
+  const createWorker = vi.spyOn(WorkersRepository.prototype, "createWorker");
+  const deleteWorker = vi.spyOn(WorkersRepository.prototype, "deleteWorker");
+  const findUserById = vi.spyOn(UsersRepository.prototype, "findUserById");
 
   beforeEach(() => {
     profile.bio = "Original worker profile bio";
     profile.status = "available";
     findWorker.mockClear();
     updateWorker.mockClear();
+    findAllWorkers.mockReset();
+    findWorkerByUserId.mockReset();
+    createWorker.mockReset();
+    deleteWorker.mockReset();
+    findUserById.mockReset();
+    findAllWorkers.mockResolvedValue([profile] as never);
+    findWorkerByUserId.mockResolvedValue(null as never);
+    findUserById.mockResolvedValue({ id: 101, role: "worker" } as never);
+    createWorker.mockResolvedValue(profile as never);
+    deleteWorker.mockResolvedValue(profile as never);
     findWorker.mockImplementation(async () => profile);
     updateWorker.mockImplementation(async (_id, data) => {
       Object.assign(profile, data);
@@ -62,6 +78,89 @@ describe("Worker profile updates", () => {
   afterAll(async () => {
     await app.close();
     vi.restoreAllMocks();
+  });
+
+  it("restricts worker creation and listing to admins and rejects anonymous access", async () => {
+    const adminCreate = await app.inject({
+      method: "POST",
+      url: "/v1/workers",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { userId: 101, bio: "A valid worker profile biography" },
+    });
+    expect(adminCreate.statusCode).toBe(201);
+
+    const adminList = await app.inject({
+      method: "GET",
+      url: "/v1/workers",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+    });
+    expect(adminList.statusCode).toBe(200);
+
+    const deniedCreate = await app.inject({
+      method: "POST",
+      url: "/v1/workers",
+      headers: { "x-user-id": "101", "x-user-role": "worker" },
+      payload: { userId: 101, bio: "A valid worker profile biography" },
+    });
+    expect(deniedCreate.statusCode).toBe(403);
+
+    const deniedList = await app.inject({
+      method: "GET",
+      url: "/v1/workers",
+      headers: { "x-user-id": "101", "x-user-role": "worker" },
+    });
+    expect(deniedList.statusCode).toBe(403);
+
+    expect((await app.inject({ method: "POST", url: "/v1/workers", payload: { userId: 101, bio: "A valid worker profile biography" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/v1/workers" })).statusCode).toBe(401);
+  });
+
+  it("allows owner/admin worker deletion and rejects other workers", async () => {
+    const owner = await app.inject({
+      method: "DELETE",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "101", "x-user-role": "worker" },
+    });
+    expect(owner.statusCode).toBe(200);
+
+    const admin = await app.inject({
+      method: "DELETE",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+    });
+    expect(admin.statusCode).toBe(200);
+
+    const denied = await app.inject({
+      method: "DELETE",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "202", "x-user-role": "worker" },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it("allows worker detail access only to the owner/admin", async () => {
+    const owner = await app.inject({
+      method: "GET",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "101", "x-user-role": "worker" },
+    });
+    expect(owner.statusCode).toBe(200);
+
+    const admin = await app.inject({
+      method: "GET",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+    });
+    expect(admin.statusCode).toBe(200);
+
+    const denied = await app.inject({
+      method: "GET",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "202", "x-user-role": "worker" },
+    });
+    expect(denied.statusCode).toBe(403);
+
+    expect((await app.inject({ method: "GET", url: "/v1/workers/20" })).statusCode).toBe(401);
   });
 
   it("rejects worker status changes while allowing profile bio edits", async () => {

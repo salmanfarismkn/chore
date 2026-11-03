@@ -130,6 +130,13 @@ The runtime validates these values in `backend/src/config/env.ts`:
 | `JWT_SECRET`     | Required; minimum 32 characters | JWT signing and verification secret.                                            |
 | `JWT_EXPIRES_IN` | `15m`                           | JWT expiration passed to `@fastify/jwt`.                                        |
 | `CORS_ORIGIN`    | `http://localhost:5173`         | Origin allowed by HTTP CORS and Socket.IO.                                      |
+| `TRUST_PROXY`    | `false`                          | Fastify proxy trust: `false`, `true`, hop count, or an explicit proxy address list. |
+| `RATE_LIMIT_AUTH_MAX` | `10` | Maximum test-token authentication attempts per client in the configured window. |
+| `RATE_LIMIT_AUTH_WINDOW_MS` | `60000` | Authentication rate-limit window in milliseconds. |
+| `RATE_LIMIT_BOOKING_MAX` | `20` | Maximum booking creations per client in the configured window. |
+| `RATE_LIMIT_BOOKING_WINDOW_MS` | `60000` | Booking rate-limit window in milliseconds. |
+| `RATE_LIMIT_ACCEPTANCE_MAX` | `30` | Maximum allocation accept attempts per client in the configured window. |
+| `RATE_LIMIT_ACCEPTANCE_WINDOW_MS` | `60000` | Allocation acceptance rate-limit window in milliseconds. |
 
 `HOST`, `CLIENT_URL`, and `SOCKET_CORS` are not read by the current runtime. `.env.example` contains placeholders only; replace them locally.
 

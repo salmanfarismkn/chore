@@ -20,7 +20,6 @@ export async function resetBookingKeys(bookingId: number) {
   const keys = await redis.keys(`booking:${bookingId}:*`);
   if (keys.length > 0) {
     await redis.del(keys);
-    console.log(`Cleared keys for booking ${bookingId}:`, keys);
   }
 }
 

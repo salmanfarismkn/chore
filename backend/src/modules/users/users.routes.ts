@@ -4,6 +4,7 @@ import { UsersRepository } from "./users.repository";
 import { UsersService } from "./users.service";
 import { createUserSchema } from "./users.schema";
 import type { AuthUser } from "../auth/auth.types";
+import { parsePositiveInteger } from "../../shared/validators/positive-integer";
 
 export async function registerUserRoutes(
   server: FastifyInstance
@@ -41,7 +42,10 @@ export async function registerUserRoutes(
   server.get("/:id", { preHandler: [server.authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const actor = request.user as AuthUser;
-    const userId = Number(id);
+    const userId = parsePositiveInteger(id);
+    if (userId === null) {
+      return reply.status(400).send({ message: "Invalid user id" });
+    }
 
     if (actor.role !== "admin" && actor.userId !== userId) {
       return reply.status(403).send({ message: "Forbidden" });

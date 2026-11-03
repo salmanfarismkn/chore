@@ -1,5 +1,29 @@
 # Chore Backend v1 Validation Report
 
+## 2026-11-01 Security Hardening Validation
+
+### Results
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Backend TypeScript build | PASS | `pnpm build` from `backend`, exit 0. |
+| Workspace type-check | PASS | `pnpm exec turbo run check-types --ui=stream`, 3 tasks successful. |
+| Focused authorization/rate-limit tests | PASS | 4 files, 12 tests passed. |
+| Rate-limit behavior | PASS | Dedicated test verified two allowed requests, third `429`, and an unconfigured route remained unlimited. |
+| Full isolated Vitest suite | NOT VERIFIED / FAIL infrastructure | With `SKIP_TEST_DB_SETUP=1`, 7 files passed with 74 tests passed; 3 integration/concurrency files failed because Redis/PostgreSQL services were unavailable. |
+| Existing concurrency tests using isolated Redis | NOT VERIFIED | Docker daemon was unavailable; Redis `ECONNREFUSED ::1:6379/127.0.0.1:6379` timed out hooks. No Redis keys were flushed. |
+
+### Commands executed
+
+```text
+cd backend && pnpm build
+cd .. && pnpm exec turbo run check-types --ui=stream
+cd backend && SKIP_TEST_DB_SETUP=1 pnpm exec vitest run src/modules/users/users.authorization.test.ts src/modules/worker-services/worker-services.authorization.test.ts src/modules/workers/workers.routes.test.ts src/modules/security.rate-limit.test.ts
+cd backend && SKIP_TEST_DB_SETUP=1 pnpm exec vitest run
+```
+
+Docker validation was attempted with `docker ps`; Docker Desktop/Linux engine was unavailable (`npipe:////./pipe/dockerDesktopLinuxEngine`), so no containers or database services were started.
+
 **Date:** 2026-10-04  
 **Result:** Automated compilation and the isolated test suite pass. **Not release-ready:** migrated booking status cannot represent `ACCEPTED`; no-worker allocation stays `ALLOCATING`; offer-expiry progression/recovery is not implemented or started; user/worker APIs still have authorization gaps documented in [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
 
