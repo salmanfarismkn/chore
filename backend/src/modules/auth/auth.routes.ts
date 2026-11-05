@@ -7,6 +7,10 @@ const testTokenSchema = z.object({
   role: z.enum(["customer", "worker", "admin"]),
 });
 
+export function isTestTokenRouteEnabled(nodeEnv: string): boolean {
+  return nodeEnv === "test";
+}
+
 export async function registerAuthRoutes(
   app: FastifyInstance
 ) {
@@ -25,7 +29,7 @@ export async function registerAuthRoutes(
     }
   );
 
-  if (env.NODE_ENV === "test") {
+  if (isTestTokenRouteEnabled(env.NODE_ENV)) {
     app.post(
       "/test-token",
       {

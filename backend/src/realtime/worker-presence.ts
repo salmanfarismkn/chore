@@ -17,12 +17,18 @@ export async function removeWorkerConnection(
   const key =
     `worker:${workerId}:connections`;
 
-  await redis.sRem(
-    key,
-    socketId
+  const result = await redis.eval(
+    `
+    redis.call("SREM", KEYS[1], ARGV[1])
+    return redis.call("SCARD", KEYS[1])
+    `,
+    {
+      keys: [key],
+      arguments: [socketId],
+    }
   );
 
-  return redis.sCard(key);
+  return Number(result);
 }
 
 export async function getWorkerConnections(

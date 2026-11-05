@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { db } from "../../db";
 import { bookings, idempotencyKeys } from "../../db/schema";
@@ -125,6 +125,11 @@ export class BookingsRepository {
       .update(bookings)
       .set({
         status,
+        ...(status === "COMPLETED" ||
+        status === "CANCELLED" ||
+        status === "ALLOCATION_FAILED"
+          ? { allocationReconciliationPending: true }
+          : {}),
       })
       .where(eq(bookings.id, bookingId))
       .returning();
@@ -134,7 +139,8 @@ export class BookingsRepository {
 
   async assignWorker(
     bookingId: number,
-    workerId: number
+    workerId: number,
+    allocationGeneration?: number
   ) {
     return db.transaction(async (tx) => {
       const [booking] = await tx
@@ -142,12 +148,16 @@ export class BookingsRepository {
         .set({
           workerId,
           status: "ASSIGNED",
+          allocationReconciliationPending: true,
           updatedAt: new Date(),
         })
         .where(
           and(
             eq(bookings.id, bookingId),
-            eq(bookings.status, "ALLOCATING")
+            eq(bookings.status, "ALLOCATING"),
+            ...(allocationGeneration === undefined
+              ? []
+              : [eq(bookings.allocationGeneration, allocationGeneration)])
           )
         )
         .returning();
@@ -167,6 +177,9 @@ export class BookingsRepository {
         workerId: bookings.workerId,
         status: bookings.status,
         allocationTier: bookings.allocationTier,
+        allocationGeneration: bookings.allocationGeneration,
+        allocationReconciliationPending:
+          bookings.allocationReconciliationPending,
         pickupLatitude: bookings.pickupLatitude,
         pickupLongitude: bookings.pickupLongitude,
       })
@@ -179,7 +192,8 @@ export class BookingsRepository {
   async moveToNextAllocationTier(
     bookingId: number,
     nextTier: number,
-    currentTier: number
+    currentTier: number,
+    allocationGeneration?: number
   ) {
     const [booking] = await db
       .update(bookings)
@@ -191,7 +205,10 @@ export class BookingsRepository {
         and(
           eq(bookings.id, bookingId),
           eq(bookings.status, "ALLOCATING"),
-          eq(bookings.allocationTier, currentTier)
+          eq(bookings.allocationTier, currentTier),
+          ...(allocationGeneration === undefined
+            ? []
+            : [eq(bookings.allocationGeneration, allocationGeneration)])
         )
       )
       .returning();
@@ -199,17 +216,24 @@ export class BookingsRepository {
     return booking ?? null;
   }
 
-  async markAllocationFailed(bookingId: number) {
+  async markAllocationFailed(
+    bookingId: number,
+    allocationGeneration?: number
+  ) {
     const [booking] = await db
       .update(bookings)
       .set({
         status: "ALLOCATION_FAILED",
+        allocationReconciliationPending: true,
         updatedAt: new Date(),
       })
       .where(
         and(
           eq(bookings.id, bookingId),
-          eq(bookings.status, "ALLOCATING")
+          eq(bookings.status, "ALLOCATING"),
+          ...(allocationGeneration === undefined
+            ? []
+            : [eq(bookings.allocationGeneration, allocationGeneration)])
         )
       )
       .returning();
@@ -222,18 +246,35 @@ export class BookingsRepository {
       .update(bookings)
       .set({
         status: "ALLOCATING",
+        allocationGeneration: sql`${bookings.allocationGeneration} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(bookings.id, bookingId), eq(bookings.status, "PENDING")))
+      .returning();
+
+    return booking ?? null;
+  }
+
+  async acquireAllocationGeneration(
+    bookingId: number,
+    currentGeneration: number
+  ) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        allocationGeneration: sql`${bookings.allocationGeneration} + 1`,
         updatedAt: new Date(),
       })
       .where(
         and(
           eq(bookings.id, bookingId),
-          eq(bookings.status, "PENDING")
+          eq(bookings.status, "ALLOCATING"),
+          eq(bookings.allocationGeneration, currentGeneration)
         )
       )
-      .returning();
+      .returning({ allocationGeneration: bookings.allocationGeneration });
 
-    return booking ?? null;
-
+    return booking?.allocationGeneration ?? null;
   }
 
   async transitionStatus(
@@ -247,6 +288,11 @@ export class BookingsRepository {
       .update(bookings)
       .set({
         status: nextStatus as BookingDbStatus,
+        ...(nextStatus === "COMPLETED" ||
+        nextStatus === "CANCELLED" ||
+        nextStatus === "ALLOCATION_FAILED"
+          ? { allocationReconciliationPending: true }
+          : {}),
         updatedAt: new Date(),
       })
       .where(
@@ -353,6 +399,7 @@ export class BookingsRepository {
         .update(bookings)
         .set({
           status: "CANCELLED" as BookingDbStatus,
+          allocationReconciliationPending: true,
           updatedAt: new Date(),
         })
         .where(
@@ -376,6 +423,7 @@ export class BookingsRepository {
       .update(bookings)
       .set({
         status: "COMPLETED",
+        allocationReconciliationPending: true,
         updatedAt: new Date(),
       })
       .where(
@@ -385,6 +433,39 @@ export class BookingsRepository {
         )
       )
       .returning();
+
+    return booking ?? null;
+  }
+
+  async findPendingAllocationReconciliations() {
+    return db
+      .select({
+        id: bookings.id,
+        status: bookings.status,
+        allocationGeneration: bookings.allocationGeneration,
+      })
+      .from(bookings)
+      .where(eq(bookings.allocationReconciliationPending, true));
+  }
+
+  async clearAllocationReconciliation(
+    bookingId: number,
+    allocationGeneration: number
+  ) {
+    const [booking] = await db
+      .update(bookings)
+      .set({
+        allocationReconciliationPending: false,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(bookings.id, bookingId),
+          eq(bookings.allocationGeneration, allocationGeneration),
+          eq(bookings.allocationReconciliationPending, true)
+        )
+      )
+      .returning({ id: bookings.id });
 
     return booking ?? null;
   }

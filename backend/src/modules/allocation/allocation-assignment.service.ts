@@ -1,4 +1,3 @@
-import { NotFoundError } from "../../shared/core/errors/not-found-error";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import { AllocationAcceptanceService } from "./allocation-acceptance.service";
 
@@ -10,13 +9,15 @@ export class AllocationAssignmentService {
 
   async acceptOffer(
     bookingId: number,
-    workerId: number
+    workerId: number,
+    generation?: number
   ) {
     // 1. Atomically claim the offer/winner in Redis.
     const accepted =
       await this.acceptanceService.accept(
         bookingId,
-        workerId
+        workerId,
+        generation
       );
 
     if (!accepted) {
@@ -28,30 +29,61 @@ export class AllocationAssignmentService {
       const booking =
         await this.bookingsRepository.assignWorker(
           bookingId,
-          workerId
+          workerId,
+          generation
         );
 
       if (!booking) {
-        await this.acceptanceService.rollbackAcceptance(
-          bookingId,
-          workerId
-        );
+        const currentState =
+          await this.bookingsRepository.getAllocationState(bookingId);
+
+        if (
+          currentState?.status === "ALLOCATING" &&
+          currentState.allocationGeneration === generation
+        ) {
+          await this.acceptanceService.rollbackAcceptance(
+            bookingId,
+            workerId,
+            generation
+          );
+        }
 
         return null;
       }
 
       // 3. Assignment succeeded.
-      await this.acceptanceService.releaseWinner(
-        bookingId,
-        workerId
-      );
+      try {
+        await this.acceptanceService.releaseWinner(
+          bookingId,
+          workerId,
+          generation
+        );
+      } catch (cleanupError) {
+        console.error(JSON.stringify({
+          event: "allocation_redis_cleanup_failed",
+          bookingId,
+          generation,
+          reason: cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError),
+        }));
+      }
 
       return booking;
     } catch (error) {
-      await this.acceptanceService.rollbackAcceptance(
-        bookingId,
-        workerId
-      );
+      const currentState =
+        await this.bookingsRepository.getAllocationState(bookingId);
+
+      if (
+        currentState?.status === "ALLOCATING" &&
+        currentState.allocationGeneration === generation
+      ) {
+        await this.acceptanceService.rollbackAcceptance(
+          bookingId,
+          workerId,
+          generation
+        );
+      }
 
       throw error;
     }

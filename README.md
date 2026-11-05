@@ -13,7 +13,7 @@ This pnpm/Turborepo workspace also contains `apps/web` and `apps/docs`; this REA
 - Conditional PostgreSQL assignment and booking lifecycle transition checks.
 - Worker Socket.IO JWT verification, worker-room membership, and presence/availability updates.
 
-These describe code paths, not production certification. Current gaps are listed under [Limitations](#limitations).
+These describe code paths, not production certification. Current gaps are listed under [Limitations](#limitations) and the [final release-readiness review](docs/FINAL_RELEASE_READINESS.md).
 
 ## Architecture
 
@@ -53,7 +53,7 @@ stateDiagram-v2
     WORKING --> CANCELLED
 ```
 
-This diagram is the TypeScript domain map, not the persisted enum: committed migrations omit `ACCEPTED` and `ALLOCATION_FAILED`. A fresh migrated database cannot persist `ASSIGNED -> ACCEPTED`; see [validation results](docs/VALIDATION_REPORT.md).
+This diagram matches the current persisted enum, including `ACCEPTED` and `ALLOCATION_FAILED`, after migrations 0009, 0010, and 0011.
 
 ## Technology and Repository
 
@@ -68,7 +68,7 @@ This diagram is the TypeScript domain map, not the persisted enum: committed mig
 
 ```text
 backend/                 Fastify API, migrations, tests, k6 scenario
-infrastructure/docker/   PostgreSQL, Redis, backend, and pgAdmin Compose stack
+infrastructure/docker/   Development and production Compose configurations
 apps/web/                Web workspace app
 apps/docs/               Docs workspace app
 packages/                Shared UI, ESLint, and TypeScript configuration
@@ -93,7 +93,7 @@ pnpm install
 Copy-Item backend/.env.example backend/.env
 ```
 
-Edit `backend/.env`: replace the database URL with a valid local PostgreSQL URL and set `JWT_SECRET` to a random value of at least 32 characters. Keep `.env` local; it is ignored by Git. Compose contains development-only database/admin defaults; do not expose those services publicly or reuse those defaults for deployment.
+Edit `backend/.env`: replace the database URL with a valid local PostgreSQL URL and set `JWT_SECRET` to a random value of at least 32 characters. Keep `.env` local; it is ignored by Git. The default Compose file is development-only and includes local database, Redis, and pgAdmin port mappings.
 
 Start local PostgreSQL and Redis. Compose interpolation requires `JWT_SECRET`, so provide the completed backend environment file:
 
@@ -140,6 +140,32 @@ The runtime validates these values in `backend/src/config/env.ts`:
 
 `HOST`, `CLIENT_URL`, and `SOCKET_CORS` are not read by the current runtime. `.env.example` contains placeholders only; replace them locally.
 
+## Production Compose configuration
+
+Production must use [docker-compose.production.yml](infrastructure/docker/docker-compose.production.yml),
+not the development Compose file:
+
+```powershell
+Copy-Item infrastructure/docker/.env.production.example infrastructure/docker/.env.production
+# Edit the copied file with values supplied by the deployment secret manager.
+docker compose --env-file infrastructure/docker/.env.production -f infrastructure/docker/docker-compose.production.yml config
+docker compose --env-file infrastructure/docker/.env.production -f infrastructure/docker/docker-compose.production.yml up -d --build
+```
+
+Production requires `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
+`DATABASE_URL`, `REDIS_PASSWORD`, `REDIS_URL`, `JWT_SECRET`, and
+`CORS_ORIGIN`. `JWT_SECRET` must be at least 32 characters and production
+validation rejects known development placeholders and local database/Redis
+endpoints. `TRUST_PROXY` must match the actual trusted proxy topology.
+
+The production file keeps PostgreSQL and Redis on the internal Compose network,
+does not include pgAdmin, and publishes only the backend port. The development
+file remains the place for local PostgreSQL/Redis/pgAdmin port mappings.
+Compose environment files are an operator convenience, not production-grade
+secret management; use an external secret manager and private network policy
+for deployment. The backend entrypoint still runs Drizzle migrations before
+starting the server. Do not use `drizzle-kit push` for production migrations.
+
 ## API and Authentication
 
 With the default port, Swagger UI is at `http://localhost:3000/docs`. OpenAPI server metadata points to `http://localhost:3000`.
@@ -157,7 +183,7 @@ With the default port, Swagger UI is at `http://localhost:3000/docs`. OpenAPI se
 | `POST /v1/bookings/:id/accept`, `/en-route`, `/start`, `/complete`          | Assigned worker JWT. `ACCEPTED` cannot persist on a fresh migrated database.                           |
 | `POST /v1/allocation/bookings/:bookingId/offer`                             | Admin JWT; body uses `userId` or `workerId`, `tier`, `ttlSeconds`.                                     |
 | `POST /v1/allocation/bookings/:bookingId/accept`                            | Worker JWT; worker identity comes from the token.                                                      |
-| `/v1/users`, `/v1/workers`, `/v1/service-categories`, `/v1/worker-services` | CRUD/catalog routes exist; several reads and mutations are unauthenticated.                            |
+| `/v1/users`, `/v1/workers`, `/v1/service-categories`, `/v1/worker-services` | Authenticated CRUD/catalog routes with role/ownership checks as implemented. |
 
 There is no production login/refresh flow. The test-token route is not production authentication. User and worker CRUD/read routes must not be exposed to untrusted clients as currently configured.
 
@@ -192,11 +218,11 @@ The request schema accepts `customerId`, `serviceCategoryId`, optional `schedule
 
 ## Booking and Allocation Behavior
 
-Booking creation verifies the customer and service, stores the booking/idempotency response in one PostgreSQL transaction, then calls TEP. Candidate lookup requires an active worker-service link, an `available` profile, and coordinates. Ranking uses rating and completed-job count; distance is calculated but not included in the score.
+Booking creation verifies the customer and service, stores the booking/idempotency response in one PostgreSQL transaction, then calls TEP. Candidate lookup requires an active worker-service link, an `available` profile, and coordinates. Ranking uses rating and completed-job count; distance is calculated but is not included in the score. Allocation generations, lease fencing, durable reconciliation, terminal cleanup, and worker-disconnect revocation are documented in the allocation reliability audit.
 
-Configured tiers are 3 candidates/20 seconds, 5/20 seconds, then 10/30 seconds. The request path currently starts only the first available tier. The expiry worker is a stub, recovery is not started by the server, and a no-worker booking remains `ALLOCATING`; progression and terminal failure must not be assumed.
+Configured tiers are 3 candidates/20 seconds, 5/20 seconds, then 10/30 seconds. The request path starts the first available tier; expiry and recovery workers progress or fail allocation under generation/lease fencing. Redis cleanup is retryable through the durable reconciliation marker.
 
-Redis acceptance verifies offer identity, pending status, and expiry before atomically claiming a winner. PostgreSQL assignment is conditional on `ALLOCATING`. On database assignment failure, the application now releases the matching winner and restores an unexpired offer to pending. A process crash between Redis claim and PostgreSQL assignment can still leave stale state because winner keys have no TTL/reconciliation guarantee.
+Redis acceptance verifies offer identity, generation, pending status, and expiry before atomically claiming a winner. PostgreSQL assignment is conditional on `ALLOCATING` and the current generation. Assignment failure is compensated when safe; committed PostgreSQL assignment is not undone when Redis cleanup fails. Cross-store atomicity is not claimed.
 
 ## Tests and Load
 
@@ -226,11 +252,12 @@ The isolated run in [VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md) completed 
 ## Limitations and Security
 
 - No production login/refresh or verified identity flow exists. Test JWT minting is test-only.
-- User and worker CRUD/read endpoints, service catalog, and worker-service routes include unauthenticated operations; worker profiles expose location/status.
-- The persisted enum cannot represent `ACCEPTED` or `ALLOCATION_FAILED` although the TypeScript state map can.
-- Offer-expiry progression, later TEP tiers, recovery, and clean no-worker failure are incomplete. Ranking does not use distance.
-- Socket.IO verifies JWT signatures and accepts worker availability events, but presence reconciliation and stale-connection cleanup are not established.
+- No production login/refresh or verified identity flow exists. Test JWT minting is test-only.
+- Rate limiting is process-local and is not a shared multi-replica control.
+- Crash-at-boundary, Redis/PostgreSQL failover, and deployment-scale behavior remain unverified.
+- Ranking does not use distance.
+- Socket.IO presence and stale-disconnect handling are implemented and isolated live-tested, but production-scale reconnect behavior remains unverified.
 - Compose contains development-only database/admin defaults and publishes service ports. Do not deploy it publicly without replacing credentials, restricting network access, and verifying container health.
 - The validation report recorded a restarting Compose backend despite point-in-time health probes; isolated API and load results are not deployment certification.
 
-Priorities for future work are production authentication/authorization, state/migration reconciliation, offer-expiry/recovery processing, crash-safe Redis/PostgreSQL reconciliation, and repeatable CI/load fixtures.
+Priorities for future work are production authentication, distributed rate limiting, deterministic crash/failover testing, deployment-safe secrets/networking, and repeatable CI/load fixtures. See [FINAL_RELEASE_READINESS.md](docs/FINAL_RELEASE_READINESS.md).

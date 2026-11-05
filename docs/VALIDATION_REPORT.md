@@ -125,3 +125,18 @@ All validation below used disposable PostgreSQL and Redis containers on ports `5
 | Redis/PostgreSQL consistency | NOT VERIFIED |
 
 The release is **not release-ready**. Production authentication, end-to-end recovery, and live cross-store failure/race validation remain unresolved.
+
+## Current validation alignment — 2026-11-04
+
+This report contains historical validation sections from before allocation
+Phases 2.2-2.6. Current isolated validation is documented in
+[ALLOCATION_RELIABILITY_AUDIT.md](ALLOCATION_RELIABILITY_AUDIT.md) and
+[FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md). The latest backend
+suite passed 108/108 tests against disposable PostgreSQL and Redis, and
+independent-process fencing and live Socket.IO harnesses passed.
+
+Those results do not verify forced crash boundaries, PostgreSQL/Redis
+failover, deployment-scale performance, production authentication, or
+distributed multi-replica rate limiting. Historical failures and limitations
+above remain evidence of earlier states and should not be interpreted as the
+current source implementation without checking the dated alignment note.

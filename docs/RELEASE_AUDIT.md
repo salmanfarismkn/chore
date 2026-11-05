@@ -118,3 +118,21 @@ Redis winner claims now have a bounded TTL and assignment failure compensation r
 | Redis/PostgreSQL assignment consistency | NOT VERIFIED | Compensation and bounded locks are covered by tests, but real PostgreSQL failure injection and HTTP-level acceptance races were not run; no atomicity is claimed. |
 
 The project remains **NO-GO** while any P0 row is `FAIL` or `NOT VERIFIED`.
+
+## Current alignment note — 2026-11-04
+
+The findings and commands above include historical audit snapshots from before
+allocation Phases 2.2-2.6. The current worktree now includes generation
+fencing, durable reconciliation, terminal cleanup, worker-disconnect
+revocation, Redis offer indexes, and incremental Redis `SCAN` cleanup. The
+latest isolated evidence is recorded in
+[ALLOCATION_RELIABILITY_AUDIT.md](ALLOCATION_RELIABILITY_AUDIT.md) and
+[FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md).
+
+The following limitations remain current: there is no production
+authentication provider; rate limiting is process-local; the supplied Compose
+configuration contains development credentials and publicly mapped data/admin
+ports; and deterministic crash/failover and deployment-scale verification
+remain unverified. Historical statements describing the pre-Phase-2
+allocation worker, migration, or authorization state should not be used as a
+description of the current implementation.

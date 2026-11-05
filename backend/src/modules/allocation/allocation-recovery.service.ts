@@ -2,13 +2,15 @@ import { BookingsRepository } from "../bookings/bookings.repository";
 import { AllocationLockService } from "./allocation-lock.service";
 import { AllocationOfferService } from "./allocation-offer.service";
 import { TepService } from "./tep.service";
+import { AllocationReconciliationService } from "./allocation-reconciliation.service";
 
 export class AllocationRecoveryService {
   constructor(
     private readonly bookingsRepository: BookingsRepository,
     private readonly allocationLockService: AllocationLockService,
     private readonly allocationOfferService: AllocationOfferService,
-    private readonly tepService: TepService
+    private readonly tepService: TepService,
+    private readonly reconciliationService: AllocationReconciliationService
   ) {}
 
   async recoverBooking(bookingId: number): Promise<void> {
@@ -19,8 +21,11 @@ export class AllocationRecoveryService {
     }
 
     if (booking.status !== "ALLOCATING") {
+      await this.reconciliationService.reconcileBooking(bookingId);
       return;
     }
+
+    await this.reconciliationService.reconcileBooking(bookingId);
 
     const winner =
       await this.allocationLockService.getWinner(bookingId);

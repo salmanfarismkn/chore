@@ -26,6 +26,12 @@ export const bookings = pgTable(
 
     allocationTier: integer("allocation_tier").default(1).notNull(),
 
+    allocationGeneration: integer("allocation_generation").default(0).notNull(),
+
+    allocationReconciliationPending: boolean("allocation_reconciliation_pending")
+      .default(false)
+      .notNull(),
+
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
     
     pickupLatitude: real("pickup_latitude"),
@@ -62,4 +68,3 @@ export const bookings = pgTable(
     workerStatusIdx: index("bookings_worker_status_idx").on(table.workerId,table.status),
   })
 );
-

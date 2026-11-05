@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { z } from "zod";
 
-const envSchema = z.object({
+const baseEnvSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
@@ -45,16 +45,119 @@ const envSchema = z.object({
   RATE_LIMIT_ACCEPTANCE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const developmentOnlySecrets = new Set([
+  "replace-with-a-random-secret-at-least-32-characters",
+  "development-secret",
+  "test-secret",
+  "secret",
+  "abcdefghijklmnopqrstuvwxyz123456",
+]);
 
-if (!parsed.success) {
-  console.error("Invalid environment configuration:");
-
-  for (const issue of parsed.error.issues) {
-    console.error(`- ${issue.path.join(".")}: ${issue.message}`);
-  }
-
-  process.exit(1);
+function containsPlaceholder(value: string): boolean {
+  return /(?:replace-with|change-me|your[-_])/i.test(value);
 }
 
-export const env = parsed.data;
+function isDevelopmentDatabaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      (url.username === "postgres" && url.password === "postgres")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isDevelopmentRedisUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+export function parseEnvironment(source: NodeJS.ProcessEnv = process.env) {
+  const parsed = baseEnvSchema.safeParse(source);
+
+  if (!parsed.success) {
+    throw parsed.error;
+  }
+
+  const value = parsed.data;
+  const issues: z.core.$ZodIssue[] = [];
+
+  if (value.NODE_ENV === "production") {
+    if (!source.REDIS_URL?.trim()) {
+      issues.push({
+        code: "custom",
+        path: ["REDIS_URL"],
+        message: "REDIS_URL is required in production",
+      });
+    }
+
+    if (
+      developmentOnlySecrets.has(value.JWT_SECRET.toLowerCase()) ||
+      containsPlaceholder(value.JWT_SECRET)
+    ) {
+      issues.push({
+        code: "custom",
+        path: ["JWT_SECRET"],
+        message: "JWT_SECRET must not use a development or test placeholder",
+      });
+    }
+
+    if (
+      isDevelopmentDatabaseUrl(value.DATABASE_URL) ||
+      containsPlaceholder(value.DATABASE_URL)
+    ) {
+      issues.push({
+        code: "custom",
+        path: ["DATABASE_URL"],
+        message: "DATABASE_URL must reference a production database",
+      });
+    }
+
+    if (isDevelopmentRedisUrl(value.REDIS_URL) || containsPlaceholder(value.REDIS_URL)) {
+      issues.push({
+        code: "custom",
+        path: ["REDIS_URL"],
+        message: "REDIS_URL must reference a production Redis service",
+      });
+    }
+
+    if (!source.CORS_ORIGIN?.trim()) {
+      issues.push({
+        code: "custom",
+        path: ["CORS_ORIGIN"],
+        message: "CORS_ORIGIN is required in production",
+      });
+    }
+  }
+
+  if (issues.length > 0) {
+    throw new z.ZodError(issues);
+  }
+
+  return value;
+}
+
+export const env = (() => {
+  try {
+    return parseEnvironment();
+  } catch (error) {
+    console.error("Invalid environment configuration:");
+
+    if (error instanceof z.ZodError) {
+      for (const issue of error.issues) {
+        console.error(`- ${issue.path.join(".")}: ${issue.message}`);
+      }
+    } else {
+      console.error("- Invalid environment configuration");
+    }
+
+    process.exit(1);
+  }
+})();
