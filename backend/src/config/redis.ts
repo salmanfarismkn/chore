@@ -17,9 +17,17 @@ export async function connectRedis() {
 
 
 export async function resetBookingKeys(bookingId: number) {
-  const keys = await redis.keys(`booking:${bookingId}:*`);
-  if (keys.length > 0) {
-    await redis.del(keys);
+  const keys: string[] = [];
+
+  for await (const batch of redis.scanIterator({
+    MATCH: `booking:${bookingId}:*`,
+    COUNT: 100,
+  })) {
+    keys.push(...batch);
+  }
+
+  for (const key of keys) {
+    await redis.del(key);
   }
 }
 

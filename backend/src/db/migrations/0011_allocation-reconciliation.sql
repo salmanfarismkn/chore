@@ -1,0 +1,1 @@
+ALTER TABLE "bookings" ADD COLUMN "allocation_reconciliation_pending" boolean DEFAULT false NOT NULL;

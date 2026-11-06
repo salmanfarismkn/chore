@@ -3,9 +3,12 @@ import { AllocationOfferService } from "./allocation-offer.service";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import type { AllocationTier } from "./allocation.types";
 import { AllocationLockService } from "./allocation-lock.service";
-import { redis } from "../../config/redis";
 import { AllocationLeaseService } from "./allocation-lease.service";
 import { INSTANCE_ID } from "../../config/instance";
+import {
+  AllocationFence,
+  AllocationFenceError,
+} from "./allocation-fence";
 
 
 const TIER_SIZES = [5, 10, 20];
@@ -39,29 +42,31 @@ export class TepService {
       bookingId: number,
       serviceCategoryId: number
     ) {
-      const acquired = await this.allocationLeaseService.acquire(
-        bookingId,
-        INSTANCE_ID
-      );
+      const allocationStarted =
+        await this.bookingsRepository.startAllocation(bookingId);
 
-      if (!acquired) {
-        return;
+      if (!allocationStarted) {
+        return {
+          allocated: false,
+          reason: "allocation_not_started",
+        };
       }
 
-      const heartbeat = this.startLeaseHeartbeat(bookingId);
+      const fence = await this.acquireInitialFence(
+        bookingId,
+        allocationStarted.allocationGeneration
+      );
+
+      if (!fence) {
+        return {
+          allocated: false,
+          reason: "allocation_lease_unavailable",
+        };
+      }
+
+      const heartbeat = this.startLeaseHeartbeat(fence);
 
       try {
-
-        const allocationStarted =
-          await this.bookingsRepository.startAllocation(bookingId);
-
-        if (!allocationStarted) {
-          return {
-            allocated: false,
-            reason: "allocation_not_started",
-          };
-        }
-
         if (
           allocationStarted.pickupLatitude === null ||
           allocationStarted.pickupLongitude === null
@@ -79,7 +84,10 @@ export class TepService {
         );
 
         if (tiers.length === 0) {
-          await this.bookingsRepository.markAllocationFailed(bookingId);
+          await this.bookingsRepository.markAllocationFailed(
+            bookingId,
+            fence.generation
+          );
 
           return {
             allocated: false,
@@ -89,15 +97,20 @@ export class TepService {
 
         const firstTier = tiers[0];
 
-        const key = `allocation:booking:${bookingId}:tier:${firstTier.name}:remaining`;
-        await redis.set(key, firstTier.candidates.length.toString());
+        await this.offerService.setTierRemaining(
+          bookingId,
+          firstTier.name,
+          firstTier.candidates.length,
+          fence
+        );
 
         for (const candidate of firstTier.candidates) {
           await this.offerService.createOffer(
             bookingId,
             candidate.workerId,
             firstTier.name,
-            firstTier.timeoutSeconds
+            firstTier.timeoutSeconds,
+            fence
           );
         }
 
@@ -108,22 +121,106 @@ export class TepService {
       } finally {
       
         clearInterval(heartbeat);
-        await this.allocationLeaseService.release(bookingId, INSTANCE_ID);
+        await this.allocationLeaseService.release(
+          bookingId,
+          INSTANCE_ID,
+          fence.generation
+        );
       }
     }
 
+  private async acquireInitialFence(
+    bookingId: number,
+    generation: number
+  ): Promise<AllocationFence | null> {
+    const acquired = await this.allocationLeaseService.acquire(
+      bookingId,
+      INSTANCE_ID,
+      generation
+    );
+
+    if (!acquired) {
+      return null;
+    }
+
+    return {
+      bookingId,
+      instanceId: INSTANCE_ID,
+      generation,
+      token: this.allocationLeaseService.getToken(INSTANCE_ID, generation),
+    };
+  }
+
+  private async acquireFreshFence(
+    bookingId: number,
+    currentGeneration: number
+  ): Promise<AllocationFence | null> {
+    const acquired = await this.allocationLeaseService.acquire(
+      bookingId,
+      INSTANCE_ID,
+      currentGeneration
+    );
+
+    if (!acquired) {
+      return null;
+    }
+
+    const nextGeneration =
+      await this.bookingsRepository.acquireAllocationGeneration(
+        bookingId,
+        currentGeneration
+      );
+
+    if (nextGeneration === null) {
+      await this.allocationLeaseService.release(
+        bookingId,
+        INSTANCE_ID,
+        currentGeneration
+      );
+      return null;
+    }
+
+    const updatedLease = await this.allocationLeaseService.updateGeneration(
+      bookingId,
+      INSTANCE_ID,
+      currentGeneration,
+      nextGeneration
+    );
+
+    if (!updatedLease) {
+      return null;
+    }
+
+    return {
+      bookingId,
+      instanceId: INSTANCE_ID,
+      generation: nextGeneration,
+      token: this.allocationLeaseService.getToken(
+        INSTANCE_ID,
+        nextGeneration
+      ),
+    };
+  }
+
   private startLeaseHeartbeat(
-    bookingId: number
+    fence: AllocationFence
   ) {
     const interval = setInterval(async () => {
       const renewed =
         await this.allocationLeaseService.renew(
-          bookingId,
-          INSTANCE_ID
+          fence.bookingId,
+          fence.instanceId,
+          fence.generation
         );
 
       if (!renewed) {
         clearInterval(interval);
+        console.warn(JSON.stringify({
+          event: "allocation_lease_lost",
+          bookingId: fence.bookingId,
+          generation: fence.generation,
+          reason: "lease_renewal_failed",
+        }));
       }
     }, 20_000);
 
@@ -132,18 +229,23 @@ export class TepService {
 
   private async sendTier(
     bookingId: number,
-    tier: AllocationTier
+    tier: AllocationTier,
+    fence: AllocationFence
   ) {
-    
-    const key = `allocation:booking:${bookingId}:tier:${tier.name}:remaining`;
-    await redis.set(key, tier.candidates.length.toString());
+    await this.offerService.setTierRemaining(
+      bookingId,
+      tier.name,
+      tier.candidates.length,
+      fence
+    );
 
     for (const candidate of tier.candidates) {
       await this.offerService.createOffer(
         bookingId,
         candidate.workerId,
         tier.name,
-        tier.timeoutSeconds
+        tier.timeoutSeconds,
+        fence
       );
     }
   }
@@ -151,7 +253,8 @@ export class TepService {
 
   private async startTier(
     bookingId: number,
-    tier: number
+    tier: number,
+    fence: AllocationFence
   ): Promise<void> {
     const booking =
       await this.bookingsRepository.getAllocationState(
@@ -159,7 +262,10 @@ export class TepService {
       );
 
     if (!booking) {
-      await this.bookingsRepository.markAllocationFailed(bookingId);
+      await this.bookingsRepository.markAllocationFailed(
+        bookingId,
+        fence.generation
+      );
       return;
     }
 
@@ -167,7 +273,10 @@ export class TepService {
       booking.pickupLatitude === null ||
       booking.pickupLongitude === null
     ) {
-      await this.bookingsRepository.markAllocationFailed(bookingId);
+      await this.bookingsRepository.markAllocationFailed(
+        bookingId,
+        fence.generation
+      );
       return;
     }
 
@@ -181,47 +290,73 @@ export class TepService {
     const tierWorkers = tierInfo?.candidates ?? [];
 
     if (tierWorkers.length === 0) {
-      await this.bookingsRepository.markAllocationFailed(bookingId);
+      await this.bookingsRepository.markAllocationFailed(
+        bookingId,
+        fence.generation
+      );
       return;
     }
 
-    await this.bookingsRepository.moveToNextAllocationTier(
+    const updated = await this.bookingsRepository.moveToNextAllocationTier(
       bookingId,
       tier,
-      tier
+      tier,
+      fence.generation
     );
 
-    const remainingKey = `allocation:booking:${bookingId}:tier:${tier}:remaining`;
-    await redis.set(remainingKey, tierWorkers.length.toString());
+    if (!updated) {
+      throw new AllocationFenceError(
+        bookingId,
+        fence.generation,
+        "booking generation changed before tier progression"
+      );
+    }
+
+    await this.offerService.setTierRemaining(
+      bookingId,
+      tierInfo!.name,
+      tierWorkers.length,
+      fence
+    );
 
     for (const candidate of tierWorkers) {
       await this.offerService.createOffer(
         bookingId,
         candidate.workerId,
         tierInfo!.name,
-        tierInfo!.timeoutSeconds
+        tierInfo!.timeoutSeconds,
+        fence
       );
     }
   }
 
   async advanceTier(bookingId: number) {
-    const acquired = await this.allocationLeaseService.acquire(
-      bookingId,
-      INSTANCE_ID
-    );
-
-    if (!acquired) {
+    const booking = await this.bookingsRepository.getAllocationState(bookingId);
+    if (!booking || booking.status !== "ALLOCATING") {
       return null;
     }
 
+    const fence = await this.acquireFreshFence(
+      bookingId,
+      booking.allocationGeneration
+    );
+    if (!fence) return null;
+
     try {
-      return await this.advanceTierOnce(bookingId);
+      return await this.advanceTierOnce(bookingId, fence);
     } finally {
-      await this.allocationLeaseService.release(bookingId, INSTANCE_ID);
+      await this.allocationLeaseService.release(
+        bookingId,
+        INSTANCE_ID,
+        fence.generation
+      );
     }
   }
 
-  private async advanceTierOnce(bookingId: number) {
+  private async advanceTierOnce(
+    bookingId: number,
+    fence: AllocationFence
+  ) {
     const booking =
       await this.bookingsRepository.getAllocationState(
         bookingId
@@ -263,7 +398,10 @@ export class TepService {
       );
 
     if (!nextTier) {
-      await this.bookingsRepository.markAllocationFailed(bookingId);
+      await this.bookingsRepository.markAllocationFailed(
+        bookingId,
+        fence.generation
+      );
       return {
         finished: true,
         reason: "no_more_candidates",
@@ -276,7 +414,8 @@ export class TepService {
         .moveToNextAllocationTier(
           bookingId,
           nextTierNumber,
-          booking.allocationTier
+          booking.allocationTier,
+          fence.generation
         );
 
     if (!updated) {
@@ -284,8 +423,12 @@ export class TepService {
     }
 
    
-    const key = `allocation:booking:${bookingId}:tier:${nextTier.name}:remaining`;
-    await redis.set(key, nextTier.candidates.length.toString());
+    await this.offerService.setTierRemaining(
+      bookingId,
+      nextTier.name,
+      nextTier.candidates.length,
+      fence
+    );
 
     for (
       const candidate of nextTier.candidates
@@ -294,7 +437,8 @@ export class TepService {
         bookingId,
         candidate.workerId,
         nextTier.name,
-        nextTier.timeoutSeconds
+        nextTier.timeoutSeconds,
+        fence
       );
     }
 
@@ -302,62 +446,6 @@ export class TepService {
       finished: false,
       tier: nextTier.name,
     };
-  }
-
-  private async advanceToNextTier(
-    bookingId: number,
-    completedTier: number
-  ) {
-    const booking = await this.bookingsRepository.getAllocationState(
-      bookingId
-    );
-
-    if (!booking) return;
-
-    if (booking.status !== "ALLOCATING") return;
-
-    const winner = await this.allocationLockService.getWinner(
-      bookingId
-    );
-
-    if (winner !== null) return;
-
-    const nextTierNumber = completedTier + 1;
-
-    if (
-      booking.pickupLatitude === null ||
-      booking.pickupLongitude === null
-    ) {
-      await this.bookingsRepository.markAllocationFailed(bookingId);
-      return;
-    }
-
-    const tiers = await this.allocationService.createTiers(
-      booking.serviceCategoryId,
-      booking.pickupLatitude,
-      booking.pickupLongitude
-    );
-
-    const nextTier =
-      this.allocationService.getTier(
-        tiers,
-        nextTierNumber
-      );
-
-    if (!nextTier) {
-      await this.bookingsRepository.markAllocationFailed(bookingId);
-      return;
-    }
-
-    const updated = await this.bookingsRepository.moveToNextAllocationTier(
-      bookingId,
-      nextTierNumber,
-      booking.allocationTier
-    );
-
-    if (!updated) return;
-
-    await this.sendTier(bookingId, nextTier);
   }
 
   async resumeAllocation(
@@ -381,19 +469,22 @@ export class TepService {
       return;
     }
 
-    const acquired = await this.allocationLeaseService.acquire(
+    const fence = await this.acquireFreshFence(
       bookingId,
-      INSTANCE_ID
+      booking.allocationGeneration
     );
-
-    if (!acquired) {
+    if (!fence) {
       return;
     }
 
     try {
-      await this.startTier(bookingId, tier);
+      await this.startTier(bookingId, tier, fence);
     } finally {
-      await this.allocationLeaseService.release(bookingId, INSTANCE_ID);
+      await this.allocationLeaseService.release(
+        bookingId,
+        INSTANCE_ID,
+        fence.generation
+      );
     }
   }
 }

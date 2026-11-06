@@ -2,6 +2,11 @@ import { redis } from "../../config/redis";
 
 const LEASE_TTL_SECONDS = 60;
 
+export interface AllocationLease {
+  instanceId: string;
+  generation: number;
+}
+
 export class AllocationLeaseService {
   private getKey(bookingId: number) {
     return `booking:${bookingId}:allocation:lease`;
@@ -9,11 +14,12 @@ export class AllocationLeaseService {
 
   async acquire(
     bookingId: number,
-    instanceId: string
+    instanceId: string,
+    generation: number
   ): Promise<boolean> {
     const result = await redis.set(
       this.getKey(bookingId),
-      instanceId,
+      this.getToken(instanceId, generation),
       {
         NX: true,
         EX: LEASE_TTL_SECONDS,
@@ -25,7 +31,8 @@ export class AllocationLeaseService {
 
   async renew(
     bookingId: number,
-    instanceId: string
+    instanceId: string,
+    generation: number
   ): Promise<boolean> {
     const key = this.getKey(bookingId);
 
@@ -39,7 +46,7 @@ export class AllocationLeaseService {
       {
         keys: [key],
         arguments: [
-          instanceId,
+          this.getToken(instanceId, generation),
           LEASE_TTL_SECONDS.toString(),
         ],
       }
@@ -50,7 +57,8 @@ export class AllocationLeaseService {
 
   async release(
     bookingId: number,
-    instanceId: string
+    instanceId: string,
+    generation: number
   ): Promise<boolean> {
     const result = await redis.eval(
       `
@@ -61,10 +69,40 @@ export class AllocationLeaseService {
       `,
       {
         keys: [this.getKey(bookingId)],
-        arguments: [instanceId],
+        arguments: [this.getToken(instanceId, generation)],
       }
     );
 
     return result === 1;
+  }
+
+  async updateGeneration(
+    bookingId: number,
+    instanceId: string,
+    fromGeneration: number,
+    toGeneration: number
+  ): Promise<boolean> {
+    const result = await redis.eval(
+      `
+      if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3])
+      end
+      return false
+      `,
+      {
+        keys: [this.getKey(bookingId)],
+        arguments: [
+          this.getToken(instanceId, fromGeneration),
+          this.getToken(instanceId, toGeneration),
+          LEASE_TTL_SECONDS.toString(),
+        ],
+      }
+    );
+
+    return result === "OK";
+  }
+
+  getToken(instanceId: string, generation: number) {
+    return `${instanceId}:${generation}`;
   }
 }

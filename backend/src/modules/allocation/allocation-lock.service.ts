@@ -30,12 +30,13 @@ export class AllocationLockService {
 
     const workerId = await redis.get(key);
 
-    return workerId ? Number(workerId) : null;
+    return workerId ? Number(workerId.split(":")[0]) : null;
   }
 
   async releaseWinner(
     bookingId: number,
-    workerId: number
+    workerId: number,
+    generation?: number
   ): Promise<boolean> {
     const key = this.getWinnerKey(bookingId);
 
@@ -49,7 +50,11 @@ export class AllocationLockService {
       `,
       {
         keys: [key],
-        arguments: [workerId.toString()],
+        arguments: [
+          generation === undefined
+            ? workerId.toString()
+            : `${workerId}:${generation}`,
+        ],
       }
     );
 

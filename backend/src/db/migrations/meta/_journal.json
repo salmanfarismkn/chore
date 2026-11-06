@@ -71,6 +71,20 @@
       "when": 1792848000000,
       "tag": "0009_add_allocation_terminal_statuses",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793771043542,
+      "tag": "0010_allocation-generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793771351336,
+      "tag": "0011_allocation-reconciliation",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,7 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
     new BookingsRepository(),
     acceptanceService
   );
+  const bookingsRepository = new BookingsRepository();
   const offerService = new AllocationOfferService();
 
   app.post("/bookings/:bookingId/offer", {
@@ -86,9 +87,22 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
     const workerId = actor.userId;
 
     try {
+      const allocationState =
+        await bookingsRepository.getAllocationState(parsedBookingId);
+
+      if (
+        !allocationState ||
+        allocationState.status !== "ALLOCATING"
+      ) {
+        return reply.status(409).send({
+          message: "Offer is no longer available",
+        });
+      }
+
       const accepted = await assignmentService.acceptOffer(
         parsedBookingId,
-        workerId
+        workerId,
+        allocationState.allocationGeneration
       );
 
       if (!accepted) {

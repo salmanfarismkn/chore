@@ -6,6 +6,7 @@ import {
   addWorkerConnection,
   removeWorkerConnection,
 } from "./worker-presence";
+import { AllocationOfferService } from "../modules/allocation/allocation-offer.service";
 
 const presenceService =
   new WorkerPresenceService();
@@ -27,12 +28,13 @@ export function registerWorkerSocket(
 
   const workerId =
     user.userId;
+  const offerService = new AllocationOfferService();
 
   socket.join(
     `worker:${workerId}`
   );
 
-  void addWorkerConnection(
+  const connectionReady = addWorkerConnection(
     workerId,
     socket.id
   ).then(() => {
@@ -65,6 +67,7 @@ export function registerWorkerSocket(
   socket.on(
     "disconnect",
     async () => {
+      await connectionReady;
       const remaining =
         await removeWorkerConnection(
           workerId,
@@ -75,6 +78,7 @@ export function registerWorkerSocket(
         await presenceService.setOffline(
           workerId
         );
+        await offerService.revokeWorkerOffers(workerId);
       }
     }
   );

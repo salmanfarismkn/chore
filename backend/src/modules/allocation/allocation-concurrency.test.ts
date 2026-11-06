@@ -36,6 +36,19 @@ describe("Allocation winner concurrency", () => {
         ...offerKeys,
       ].map((key) => redis.del(key))
     );
+    await Promise.all(
+      offerKeys.map((key) =>
+        redis.sRem("allocation:offers:pending", key)
+      )
+    );
+    await Promise.all(
+      offerKeys.map((key) => {
+        const workerId = key.split(":").at(-1);
+        return workerId
+          ? redis.sRem(`worker:${workerId}:offers:pending`, key)
+          : Promise.resolve(0);
+      })
+    );
   });
 
   afterAll(async () => {
@@ -83,6 +96,14 @@ describe("Allocation winner concurrency", () => {
 
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(workerIds).toContain(await lockService.getWinner(bookingId));
+    for (const workerId of workerIds) {
+      expect(
+        await redis.sIsMember(
+          "allocation:offers:pending",
+          `booking:${bookingId}:offer:${workerId}`
+        )
+      ).toBeFalsy();
+    }
   });
 
   it("rejects expired and mismatched offers without a winner", async () => {
@@ -132,6 +153,10 @@ describe("Allocation winner concurrency", () => {
     const assignmentService = new AllocationAssignmentService(
       {
         assignWorker: vi.fn().mockRejectedValue(new Error("database unavailable")),
+        getAllocationState: vi.fn().mockResolvedValue({
+          status: "ALLOCATING",
+          allocationGeneration: undefined,
+        }),
       } as never,
       acceptanceService
     );
@@ -185,13 +210,51 @@ describe("Allocation winner concurrency", () => {
       workerId: workerId.toString(),
       tier: "tier_1",
       status: "pending",
+      generation: "0",
       expiresAt: (Date.now() - 1).toString(),
     });
     await redis.sAdd(`booking:${bookingId}:allocation:offers`, offerKey);
+    await redis.sAdd("allocation:offers:pending", offerKey);
+    await redis.sAdd(`worker:${workerId}:offers:pending`, offerKey);
 
     const expired = await new AllocationOfferService().expirePendingOffers();
 
     expect(expired.has(bookingId)).toBe(true);
+    expect((await redis.hGetAll(offerKey)).status).toBe("expired");
+    expect(
+      await redis.sIsMember("allocation:offers:pending", offerKey)
+    ).toBeFalsy();
+  });
+
+  it("does not expire a replacement offer from a newer generation", async () => {
+    const bookingId = createBookingId();
+    const workerId = 304;
+    const offerKey = `booking:${bookingId}:offer:${workerId}`;
+    offerKeys.push(offerKey);
+
+    await redis.hSet(offerKey, {
+      bookingId: bookingId.toString(),
+      workerId: workerId.toString(),
+      tier: "tier_1",
+      status: "pending",
+      generation: "2",
+      expiresAt: (Date.now() - 1).toString(),
+    });
+
+    const offerService = new AllocationOfferService();
+    const expireOffer = Reflect.get(
+      offerService,
+      "expireOffer"
+    ) as (
+      bookingId: number,
+      workerId: number,
+      generation: number
+    ) => Promise<boolean>;
+    const expireBoundOffer = expireOffer.bind(offerService);
+
+    expect(await expireBoundOffer(bookingId, workerId, 1)).toBe(false);
+    expect((await redis.hGetAll(offerKey)).status).toBe("pending");
+    expect(await expireBoundOffer(bookingId, workerId, 2)).toBe(true);
     expect((await redis.hGetAll(offerKey)).status).toBe("expired");
   });
 });
