@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../auth/auth.types";
 import { UsersRepository } from "./users.repository";
 import { registerUserRoutes } from "./users.routes";
+import type { RateLimitCounter } from "../../config/rate-limit";
 
 const app = Fastify();
 app.decorate("authenticate", async (request, reply) => {
@@ -13,7 +14,14 @@ app.decorate("authenticate", async (request, reply) => {
   }
   request.user = { userId, role } as AuthUser;
 });
-app.register(registerUserRoutes, { prefix: "/v1/users" });
+const testRateLimitCounter: RateLimitCounter = async () => ({
+  count: 1,
+  ttlMs: 60_000,
+});
+app.register(registerUserRoutes, {
+  prefix: "/v1/users",
+  rateLimitCounter: testRateLimitCounter,
+});
 
 describe("User route authorization", () => {
   const findUser = vi.spyOn(UsersRepository.prototype, "findUserById");

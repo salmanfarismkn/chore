@@ -1,7 +1,7 @@
 import { redis } from "../../config/redis";
 import { db } from "../../db";
-import { bookings, workerProfiles } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { bookings, users, workerProfiles } from "../../db/schema";
+import { and, eq, isNull } from "drizzle-orm";
 import { emitWorkerOffer } from "../../realtime/allocation-events";
 import { AllocationLockService } from "./allocation-lock.service";
 import { AllocationFence, AllocationFenceError } from "./allocation-fence";
@@ -21,6 +21,25 @@ export class AllocationOfferService {
     private expirationTimers = new Map<number, NodeJS.Timeout>()
   ) {}
 
+  private async isWorkerEligible(userId: number) {
+    const [worker] = await db
+      .select({ userId: workerProfiles.userId })
+      .from(workerProfiles)
+      .innerJoin(users, eq(users.id, workerProfiles.userId))
+      .where(
+        and(
+          eq(workerProfiles.userId, userId),
+          eq(workerProfiles.approvalStatus, "approved"),
+          eq(workerProfiles.status, "available"),
+          isNull(workerProfiles.deletedAt),
+          eq(users.isActive, true),
+        ),
+      )
+      .limit(1);
+
+    return Boolean(worker);
+  }
+
   async createOffer(
     bookingId: number,
     userId: number,   
@@ -38,20 +57,13 @@ export class AllocationOfferService {
     }
 
 
-    const worker = await db
-      .select()
-      .from(workerProfiles)
-      .where(eq(workerProfiles.userId, userId))
-      .limit(1);
-
-
-    if (!worker.length || worker[0].status !== "available") {
+    if (!(await this.isWorkerEligible(userId))) {
       return {
         bookingId,
         userId,
         tier,
         status: "unavailable" as const,
-        reason: !worker.length ? "not_a_worker" : "worker_not_available",
+        reason: "worker_not_eligible",
       };
     }
     const offerKey = `booking:${bookingId}:offer:${userId}`;
@@ -138,6 +150,17 @@ export class AllocationOfferService {
       );
       await redis.sAdd(PENDING_OFFERS_INDEX, offerKey);
       await redis.sAdd(`worker:${userId}:offers:pending`, offerKey);
+    }
+
+    if (!(await this.isWorkerEligible(userId))) {
+      await this.rejectOffer(bookingId, userId);
+      return {
+        bookingId,
+        userId,
+        tier,
+        status: "unavailable" as const,
+        reason: "worker_not_eligible",
+      };
     }
     
     emitWorkerOffer({

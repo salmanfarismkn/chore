@@ -85,6 +85,34 @@
       "when": 1793771351336,
       "tag": "0011_allocation-reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793949316304,
+      "tag": "0012_spotty_blur",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793952394776,
+      "tag": "0013_app_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793956041876,
+      "tag": "0014_cultured_meteorite",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793957299949,
+      "tag": "0015_secure_admin_bootstrap_and_worker_approval_audit",
+      "breakpoints": true
     }
   ]
 }

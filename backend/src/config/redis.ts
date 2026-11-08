@@ -5,8 +5,8 @@ export const redis = createClient({
   url: env.REDIS_URL,
 });
 
-redis.on("error", (error) => {
-  console.error("Redis error:", error);
+redis.on("error", () => {
+  console.error("Redis connection error");
 });
 
 export async function connectRedis() {

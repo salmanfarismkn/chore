@@ -15,4 +15,7 @@ export interface WorkerResponse {
   averageRating: number;
   completedJobs: number;
   status: "offline" | "available" | "busy" | "suspended";
+  approvalStatus: "pending" | "approved" | "rejected";
+  approvalDecidedBy: number | null;
+  approvalDecidedAt: Date | null;
 }

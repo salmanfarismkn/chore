@@ -55,6 +55,8 @@ describe("Allocation integration", () => {
       .values({
         userId: worker.id,
         status: "available",
+        approvalStatus: "approved",
+        approvalDecidedAt: new Date(),
         averageRating: 4.9,
         completedJobs: 12,
         latitude: 23.2599,

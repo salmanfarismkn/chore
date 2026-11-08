@@ -824,3 +824,78 @@ documented in [FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md):
 allocation is **CONDITIONAL PASS**, while the complete marketplace remains
 **NO-GO** until production authentication, deployment-safe secrets/networking,
 distributed rate limiting, and crash/failover verification are addressed.
+
+## Milestone A.7 — Worker approval enforcement
+
+The worker approval lifecycle adds an independent `pending` / `approved` /
+`rejected` state. Migration 0014 conservatively defaults all preexisting
+profiles to `pending` and does not change bookings. Operational suspension
+remains in the existing worker status field.
+
+Current approval gates are present in candidate selection, manual offer
+creation, the conditional PostgreSQL assignment update, authenticated worker
+HTTP actions, and Socket.IO connection/event revalidation. Approval rejection
+revokes indexed pending Redis offers. If Redis is unavailable, the route
+reports the failure but PostgreSQL still prevents acceptance and assignment.
+Already assigned or active bookings are retained without automatic
+cancellation; worker operations requiring approval are blocked, and an
+administrator must resolve the work explicitly.
+
+The admin approval route allows only pending-to-approved, pending-to-rejected,
+and approved-to-rejected transitions. Repeated identical decisions are
+idempotent; rejected-to-approved is intentionally not supported. Approval
+records the acting administrator and decision time on the worker profile.
+There is not yet a safe initial-admin provisioning workflow, append-only
+approval audit, or verified-phone/onboarding flow. A.7 implementation and
+validation outcomes are recorded in
+[FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md); this addendum does
+not claim unrun tests or production behavior as verified.
+
+## Milestone A.8 — Approval audit and initial administrator
+
+Migration 0015 adds the `worker_approval_audit_events` table. The decision
+repository checks that the acting user is currently active and has the local
+admin role, locks the profile, updates approval state, and inserts one audit
+event in a single PostgreSQL transaction. An insert failure rolls back the
+state change. Concurrent duplicate requests serialize on the profile row;
+only the first state change emits an event. Existing pending/approved/rejected
+transition rules are unchanged.
+
+Audit events carry worker-profile ID, old/new state, actor-user ID, timestamp,
+and optional validated reason (at most 500 characters). They deliberately
+have no foreign keys so deleting a parent account/profile cannot erase
+historical events. There is no application update/delete API. This is
+application-level append-only behavior only; database owners remain able to
+modify the table. No trigger or restricted SQL role was added.
+
+The initial-admin operation is a one-time CLI task, not an HTTP endpoint. It
+requires an externally injected 32-byte random base64url secret and an
+operator-selected active customer with an existing Auth0 identity mapping.
+Migration 0015 creates the singleton completion marker, which is locked and
+consumed atomically with role promotion. Any already existing administrator
+permanently closes bootstrap; later admin removal does not reopen it. The
+operational command and recovery procedure are documented in
+[PRODUCTION_AUTH_ARCHITECTURE.md](PRODUCTION_AUTH_ARCHITECTURE.md).
+
+## A.10 — Cross-replica offer delivery finding
+
+The earlier live Socket.IO verification above used one backend process. It
+established connection counting and disconnect cleanup within that process,
+but did not establish cross-replica room delivery.
+
+A.10 connected an authenticated worker socket to backend process B, created
+the offer through process A, and observed the offer in shared Redis. The worker
+was present in the shared Redis connection set and could explicitly accept the
+offer through process B; PostgreSQL committed the assignment. However, the
+`booking:offer` event emitted by process A was not received by the worker
+socket connected to B. The Socket.IO room broadcast remains process-local
+because no cross-process adapter is configured. Presence and offer state are
+shared, but notification delivery is not.
+
+This finding supersedes any implication that the earlier single-process
+Socket.IO test proves multi-replica offer delivery. The earlier assessment of
+allocation fencing remains valid for its tested operations, but multi-replica
+marketplace readiness is **NO-GO** until cross-process notification and
+dependency-failure behavior are addressed. See
+[FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md) for the full A.10
+topology, test outcomes, and remaining deployment blockers.

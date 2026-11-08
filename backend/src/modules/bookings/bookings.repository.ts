@@ -1,7 +1,12 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, sql } from "drizzle-orm";
 
 import { db } from "../../db";
-import { bookings, idempotencyKeys } from "../../db/schema";
+import {
+  bookings,
+  idempotencyKeys,
+  users,
+  workerProfiles,
+} from "../../db/schema";
 
 import type {
   BookingResponse,
@@ -143,6 +148,19 @@ export class BookingsRepository {
     allocationGeneration?: number
   ) {
     return db.transaction(async (tx) => {
+      const eligibleWorker = tx
+        .select({ userId: workerProfiles.userId })
+        .from(workerProfiles)
+        .innerJoin(users, eq(users.id, workerProfiles.userId))
+        .where(
+          and(
+            eq(workerProfiles.userId, workerId),
+            eq(workerProfiles.approvalStatus, "approved"),
+            eq(workerProfiles.status, "available"),
+            isNull(workerProfiles.deletedAt),
+            eq(users.isActive, true),
+          ),
+        );
       const [booking] = await tx
         .update(bookings)
         .set({
@@ -155,6 +173,7 @@ export class BookingsRepository {
           and(
             eq(bookings.id, bookingId),
             eq(bookings.status, "ALLOCATING"),
+            exists(eligibleWorker),
             ...(allocationGeneration === undefined
               ? []
               : [eq(bookings.allocationGeneration, allocationGeneration)])

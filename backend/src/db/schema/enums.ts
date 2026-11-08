@@ -15,6 +15,12 @@ export const workerStatusEnum = pgEnum("worker_status", [
   "suspended",
 ]);
 
+export const workerApprovalStatusEnum = pgEnum("worker_approval_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
+
 // Booking status
 export const bookingStatusEnum = pgEnum("booking_status", [
   "PENDING",
@@ -27,4 +33,3 @@ export const bookingStatusEnum = pgEnum("booking_status", [
   "CANCELLED",
   "ALLOCATION_FAILED",
 ]);
-
