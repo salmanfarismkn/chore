@@ -8,84 +8,103 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
 import type { AuthUser } from "../auth/auth.types";
 import { parsePositiveInteger } from "../../shared/validators/positive-integer";
+import {
+  createDistributedRateLimitPreHandler,
+  RATE_LIMIT_POLICIES,
+  userRateLimitIdentity,
+  type RateLimitCounter,
+} from "../../config/rate-limit";
 
 export async function registerWorkerServiceRoutes(
-  app: FastifyInstance
+  app: FastifyInstance,
+  options: { rateLimitCounter?: RateLimitCounter } = {},
 ) {
-  const workerServicesRepository =
-    new WorkerServicesRepository();
+  const workerServicesRepository = new WorkerServicesRepository();
 
-  const workersRepository =
-    new WorkersRepository();
+  const workersRepository = new WorkersRepository();
 
-  const servicesRepository =
-    new ServicesRepository();
+  const servicesRepository = new ServicesRepository();
 
-  const workerServicesService =
-    new WorkerServicesService(
-      workerServicesRepository,
-      workersRepository,
-      servicesRepository
-    );
+  const workerServicesService = new WorkerServicesService(
+    workerServicesRepository,
+    workersRepository,
+    servicesRepository,
+  );
 
-  app.post("/", { preHandler: [app.authenticate] }, async (request, reply) => {
-    const parsed =
-      createWorkerServiceSchema.safeParse(
-        request.body
+  app.post(
+    "/",
+    {
+      preHandler: [
+        app.authenticate,
+        app.requireWorker,
+        createDistributedRateLimitPreHandler(
+          RATE_LIMIT_POLICIES.workerServiceMutation,
+          (request) => userRateLimitIdentity(request.user?.userId),
+          options.rateLimitCounter,
+        ),
+      ],
+    },
+    async (request, reply) => {
+      const parsed = createWorkerServiceSchema.safeParse(request.body);
+
+      if (!parsed.success) {
+        return reply.status(400).send({
+          message: "Invalid request body",
+          errors: parsed.error.flatten(),
+        });
+      }
+
+      const actor = request.user as AuthUser;
+      if (actor.role !== "admin" && actor.userId !== parsed.data.workerId) {
+        return reply.status(403).send({ message: "Forbidden" });
+      }
+
+      const result = await workerServicesService.createWorkerService(
+        parsed.data,
       );
 
-    if (!parsed.success) {
-      return reply.status(400).send({
-        message: "Invalid request body",
-        errors: parsed.error.flatten(),
-      });
-    }
-
-    const actor = request.user as AuthUser;
-    if (actor.role !== "admin" && actor.userId !== parsed.data.workerId) {
-      return reply.status(403).send({ message: "Forbidden" });
-    }
-
-    const result =
-      await workerServicesService.createWorkerService(
-        parsed.data
-      );
-
-    return reply.status(201).send(result);
-  });
+      return reply.status(201).send(result);
+    },
+  );
 
   app.get("/", { preHandler: [app.authenticate] }, async () => {
     return workerServicesService.getAllWorkerServices();
   });
 
-  app.get("/worker/:workerId", { preHandler: [app.authenticate] }, async (request, reply) => {
-    const { workerId } = request.params as {
-      workerId: string;
-    };
+  app.get(
+    "/worker/:workerId",
+    { preHandler: [app.authenticate, app.requireWorker] },
+    async (request, reply) => {
+      const { workerId } = request.params as {
+        workerId: string;
+      };
 
-    const actor = request.user as AuthUser;
-    const requestedWorkerId = parsePositiveInteger(workerId);
-    if (requestedWorkerId === null) {
-      return reply.status(400).send({ message: "Invalid worker id" });
-    }
-    if (actor.role !== "admin" && actor.userId !== requestedWorkerId) {
-      return reply.status(403).send({ message: "Forbidden" });
-    }
+      const actor = request.user as AuthUser;
+      const requestedWorkerId = parsePositiveInteger(workerId);
+      if (requestedWorkerId === null) {
+        return reply.status(400).send({ message: "Invalid worker id" });
+      }
+      if (actor.role !== "admin" && actor.userId !== requestedWorkerId) {
+        return reply.status(403).send({ message: "Forbidden" });
+      }
 
-    return workerServicesService.getServicesForWorker(requestedWorkerId);
-  });
+      return workerServicesService.getServicesForWorker(requestedWorkerId);
+    },
+  );
 
-  app.get("/service/:serviceId", { preHandler: [app.authenticate] }, async (request, reply) => {
-    const { serviceId } = request.params as {
-      serviceId: string;
-    };
-    const parsedServiceId = parsePositiveInteger(serviceId);
-    if (parsedServiceId === null) {
-      return reply.status(400).send({ message: "Invalid service id" });
-    }
+  app.get(
+    "/service/:serviceId",
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      const { serviceId } = request.params as {
+        serviceId: string;
+      };
+      const parsedServiceId = parsePositiveInteger(serviceId);
+      if (parsedServiceId === null) {
+        return reply.status(400).send({ message: "Invalid service id" });
+      }
 
-    return workerServicesService.getWorkersForService(
-      parsedServiceId
-    );
-  });
+      return workerServicesService.getWorkersForService(parsedServiceId);
+    },
+  );
 }

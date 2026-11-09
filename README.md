@@ -6,12 +6,12 @@ This pnpm/Turborepo workspace also contains `apps/web` and `apps/docs`; this REA
 
 ## Implemented
 
-- Fastify REST API with Zod validation, JWT verification, CORS, Helmet, Swagger UI, and health/readiness routes.
+- Fastify REST API with Zod validation, PostgreSQL-backed application sessions, CORS, Helmet, Swagger UI, and health/readiness routes.
 - PostgreSQL persistence through Drizzle ORM and committed migrations.
 - Booking creation with service-price lookup and user-scoped `Idempotency-Key` handling, including concurrent duplicate requests.
 - First-pass worker allocation using active worker-service links and available worker profiles; Redis offer/winner state and Socket.IO offer delivery.
 - Conditional PostgreSQL assignment and booking lifecycle transition checks.
-- Worker Socket.IO JWT verification, worker-room membership, and presence/availability updates.
+- Worker Socket.IO session verification, worker-room membership, and presence/availability updates.
 
 These describe code paths, not production certification. Current gaps are listed under [Limitations](#limitations) and the [final release-readiness review](docs/FINAL_RELEASE_READINESS.md).
 
@@ -20,7 +20,7 @@ These describe code paths, not production certification. Current gaps are listed
 ```mermaid
 flowchart LR
     Client[Customer or worker client] -->|HTTP / Socket.IO| API[Fastify API]
-    API --> Auth[JWT verification]
+    API --> Auth[PostgreSQL session verification]
     API --> Booking[Booking routes and service]
     Booking -->|booking and idempotency transaction| PG[(PostgreSQL)]
     Booking --> TEP[First-pass allocation]
@@ -60,7 +60,7 @@ This diagram matches the current persisted enum, including `ACCEPTED` and `ALLOC
 | Area                  | Technology                                    |
 | --------------------- | --------------------------------------------- |
 | Runtime/API           | Node.js, TypeScript, Fastify 5                |
-| Validation/auth       | Zod, `@fastify/jwt`, JWT                      |
+| Validation/auth       | Zod, Auth0 OIDC, PostgreSQL-backed sessions   |
 | Persistence           | PostgreSQL 16, Drizzle ORM, `postgres` client |
 | Coordination/realtime | Redis 7, Socket.IO                            |
 | Tests/load            | Vitest, k6                                    |
@@ -93,9 +93,9 @@ pnpm install
 Copy-Item backend/.env.example backend/.env
 ```
 
-Edit `backend/.env`: replace the database URL with a valid local PostgreSQL URL and set `JWT_SECRET` to a random value of at least 32 characters. Keep `.env` local; it is ignored by Git. The default Compose file is development-only and includes local database, Redis, and pgAdmin port mappings.
+Edit `backend/.env`: replace the database URL with a valid local PostgreSQL URL and set `APP_SESSION_TTL_SECONDS` to the desired bounded session lifetime. Keep `.env` local; it is ignored by Git. The default Compose file is development-only and includes local database, Redis, and pgAdmin port mappings.
 
-Start local PostgreSQL and Redis. Compose interpolation requires `JWT_SECRET`, so provide the completed backend environment file:
+Start local PostgreSQL and Redis using the completed backend environment file:
 
 ```powershell
 docker compose --env-file backend/.env -f infrastructure/docker/docker-compose.yml up -d postgres redis
@@ -127,11 +127,10 @@ The runtime validates these values in `backend/src/config/env.ts`:
 | `PORT`           | `3000`                          | HTTP listen port, integer from 1 to 65535.                                      |
 | `DATABASE_URL`   | Required                        | PostgreSQL connection URL.                                                      |
 | `REDIS_URL`      | `redis://localhost:6379`        | Redis URL.                                                                      |
-| `JWT_SECRET`     | Required; minimum 32 characters | JWT signing and verification secret.                                            |
-| `JWT_EXPIRES_IN` | `15m`                           | JWT expiration passed to `@fastify/jwt`.                                        |
-| `CORS_ORIGIN`    | `http://localhost:5173`         | Origin allowed by HTTP CORS and Socket.IO.                                      |
+| `APP_SESSION_TTL_SECONDS` | `3600` (300–86400) | PostgreSQL-backed application-session lifetime. |
+| `CORS_ORIGIN`    | `http://localhost:5173`         | Exact comma-separated web origins allowed by HTTP CORS and Socket.IO.            |
 | `TRUST_PROXY`    | `false`                          | Fastify proxy trust: `false`, `true`, hop count, or an explicit proxy address list. |
-| `RATE_LIMIT_AUTH_MAX` | `10` | Maximum test-token authentication attempts per client in the configured window. |
+| `RATE_LIMIT_AUTH_MAX` | `10` | Maximum login/session operations per client in the configured window. |
 | `RATE_LIMIT_AUTH_WINDOW_MS` | `60000` | Authentication rate-limit window in milliseconds. |
 | `RATE_LIMIT_BOOKING_MAX` | `20` | Maximum booking creations per client in the configured window. |
 | `RATE_LIMIT_BOOKING_WINDOW_MS` | `60000` | Booking rate-limit window in milliseconds. |
@@ -153,10 +152,11 @@ docker compose --env-file infrastructure/docker/.env.production -f infrastructur
 ```
 
 Production requires `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
-`DATABASE_URL`, `REDIS_PASSWORD`, `REDIS_URL`, `JWT_SECRET`, and
-`CORS_ORIGIN`. `JWT_SECRET` must be at least 32 characters and production
-validation rejects known development placeholders and local database/Redis
-endpoints. `TRUST_PROXY` must match the actual trusted proxy topology.
+`DATABASE_URL`, `REDIS_PASSWORD`, `REDIS_URL`, Auth0 issuer/client/redirect
+settings, `CORS_ORIGIN`, and `TRUST_PROXY`. Production Auth0 values must match
+separate web and native Auth0 registrations. `TRUST_PROXY` must identify the
+actual trusted proxy topology; forwarded TLS is accepted by Socket.IO only from
+a configured trusted proxy peer/hop.
 
 The production file keeps PostgreSQL and Redis on the internal Compose network,
 does not include pgAdmin, and publishes only the backend port. The development
@@ -174,18 +174,20 @@ With the default port, Swagger UI is at `http://localhost:3000/docs`. OpenAPI se
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `GET /health`                                                               | Liveness; does not check dependencies.                                                                 |
 | `GET /ready`                                                                | PostgreSQL `SELECT 1` and Redis `PING`; returns `503` if either is unavailable.                        |
-| `POST /v1/auth/test-token`                                                  | Test mode only. Signs caller-supplied `userId` and role; never expose in production.                   |
-| `POST /v1/bookings`                                                         | Customer JWT, matching `customerId`, and required `Idempotency-Key`; starts the first allocation pass. |
+| `POST /v1/auth/oidc/transactions`, `/oidc/callback`                         | Auth0 Authorization Code + PKCE; creates a local session only for a mapped active user.                |
+| `POST /v1/auth/test-token`                                                  | Test mode only. Creates a native session for an existing active local user; never expose in production. |
+| `POST /v1/auth/logout`, `/sessions/revoke`                                  | Revokes the current credential or all sessions for the authenticated local user.                       |
+| `POST /v1/bookings`                                                         | Customer session, matching `customerId`, and required `Idempotency-Key`; starts first allocation.       |
 | `GET /v1/bookings/:id`                                                      | Authenticated booking owner, assigned worker, or admin.                                                |
 | `GET /v1/bookings/customer/:customerId`                                     | Matching customer or admin.                                                                            |
 | `GET /v1/bookings/worker/:workerId`                                         | Matching worker or admin.                                                                              |
 | `POST /v1/bookings/:id/cancel`                                              | Authenticated; service checks customer/worker ownership and transition.                                |
-| `POST /v1/bookings/:id/accept`, `/en-route`, `/start`, `/complete`          | Assigned worker JWT. `ACCEPTED` cannot persist on a fresh migrated database.                           |
-| `POST /v1/allocation/bookings/:bookingId/offer`                             | Admin JWT; body uses `userId` or `workerId`, `tier`, `ttlSeconds`.                                     |
-| `POST /v1/allocation/bookings/:bookingId/accept`                            | Worker JWT; worker identity comes from the token.                                                      |
+| `POST /v1/bookings/:id/accept`, `/en-route`, `/start`, `/complete`          | Assigned worker session; worker profile/status is rechecked.                                          |
+| `POST /v1/allocation/bookings/:bookingId/offer`                             | Admin session; body uses `userId` or `workerId`, `tier`, `ttlSeconds`.                                |
+| `POST /v1/allocation/bookings/:bookingId/accept`                            | Worker session; worker identity comes from PostgreSQL-backed session state.                            |
 | `/v1/users`, `/v1/workers`, `/v1/service-categories`, `/v1/worker-services` | Authenticated CRUD/catalog routes with role/ownership checks as implemented. |
 
-There is no production login/refresh flow. The test-token route is not production authentication. User and worker CRUD/read routes must not be exposed to untrusted clients as currently configured.
+OIDC login creates short-lived PostgreSQL-backed sessions; refresh-token rotation is not implemented. Web sessions use a Secure, HttpOnly cookie and CSRF token; native sessions use a bearer credential and require platform secure storage. Auth0 provider tokens are not returned. User and worker CRUD/read routes must not be exposed to untrusted clients as currently configured.
 
 ### Booking Request Example
 
@@ -251,8 +253,9 @@ The isolated run in [VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md) completed 
 
 ## Limitations and Security
 
-- No production login/refresh or verified identity flow exists. Test JWT minting is test-only.
-- No production login/refresh or verified identity flow exists. Test JWT minting is test-only.
+- Phone ownership verification and customer/worker onboarding are not implemented; required phone values are not proof of verification.
+- Worker profiles have no separate approval state; an admin-provisioned profile is the current profile-existence signal, while suspension and operational availability are enforced.
+- Session refresh is not implemented. Expired clients must reauthenticate.
 - Rate limiting is process-local and is not a shared multi-replica control.
 - Crash-at-boundary, Redis/PostgreSQL failover, and deployment-scale behavior remain unverified.
 - Ranking does not use distance.

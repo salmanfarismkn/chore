@@ -16,8 +16,12 @@ import { IdempotencyRepository } from "../idempotency/idempotency.repository";
 import { IdempotencyService } from "../idempotency/idempotency.service";
 import type { AuthUser } from "../auth/auth.types";
 import { AllocationExpirationWorker } from "../allocation/allocation-expiration.worker";
-import { env } from "../../config/env";
 import { parsePositiveInteger } from "../../shared/validators/positive-integer";
+import {
+  createDistributedRateLimitPreHandler,
+  RATE_LIMIT_POLICIES,
+  userRateLimitIdentity,
+} from "../../config/rate-limit";
 
 export async function registerBookingRoutes(
   app: FastifyInstance
@@ -94,13 +98,13 @@ export async function registerBookingRoutes(
   app.post(
     "/",
     {
-      preHandler: [app.authenticate],
-      config: {
-        rateLimit: {
-          max: env.RATE_LIMIT_BOOKING_MAX,
-          timeWindow: env.RATE_LIMIT_BOOKING_WINDOW_MS,
-        },
-      },
+      preHandler: [
+        app.authenticate,
+        createDistributedRateLimitPreHandler(
+          RATE_LIMIT_POLICIES.bookingCreation,
+          (request) => userRateLimitIdentity(request.user?.userId),
+        ),
+      ],
     },
     async (request, reply) => {
       const user = request.user as {
@@ -202,7 +206,7 @@ export async function registerBookingRoutes(
   });
 
   app.get("/worker/:workerId", {
-    preHandler: [app.authenticate],
+    preHandler: [app.authenticate, app.requireWorker],
   }, async (request, reply) => {
     const { workerId } =
       request.params as {
@@ -251,6 +255,10 @@ export async function registerBookingRoutes(
     ) {
       return reply.status(403).send({ message: "Forbidden" });
     }
+    if (user.role === "worker") {
+      await app.requireWorker(request, reply);
+      if (reply.sent) return;
+    }
 
     try {
       const booking = await bookingsService.cancelBooking(
@@ -271,7 +279,14 @@ export async function registerBookingRoutes(
   });
 
   app.post("/:id/accept", {
-    preHandler: [app.authenticate],
+    preHandler: [
+      app.authenticate,
+      app.requireAvailableWorker,
+      createDistributedRateLimitPreHandler(
+        RATE_LIMIT_POLICIES.bookingAcceptance,
+        (request) => userRateLimitIdentity(request.user?.userId),
+      ),
+    ],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const bookingId = parsePositiveInteger(id);
@@ -293,7 +308,7 @@ export async function registerBookingRoutes(
   });
 
   app.post("/:id/en-route", {
-    preHandler: [app.authenticate],
+    preHandler: [app.authenticate, app.requireWorker],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const bookingId = parsePositiveInteger(id);
@@ -315,7 +330,7 @@ export async function registerBookingRoutes(
   });
 
   app.post("/:id/start", {
-    preHandler: [app.authenticate],
+    preHandler: [app.authenticate, app.requireWorker],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const bookingId = parsePositiveInteger(id);
@@ -337,7 +352,7 @@ export async function registerBookingRoutes(
   });
 
   app.post("/:id/complete", {
-    preHandler: [app.authenticate],
+    preHandler: [app.authenticate, app.requireWorker],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const bookingId = parsePositiveInteger(id);
@@ -372,6 +387,10 @@ export async function registerBookingRoutes(
 
     const booking = await bookingsService.getBooking(bookingId);
     const user = request.user as AuthUser;
+    if (user.role === "worker") {
+      await app.requireWorker(request, reply);
+      if (reply.sent) return;
+    }
     const canRead =
       user.role === "admin" ||
       (user.role === "customer" && booking.customerId === user.userId) ||

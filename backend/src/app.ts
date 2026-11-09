@@ -2,7 +2,7 @@ import Fastify from "fastify";
 
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
-import rateLimit from "@fastify/rate-limit";
+import cookie from "@fastify/cookie";
 
 import { env } from "./config/env";
 import { connectRedis } from "./config/redis";
@@ -16,12 +16,12 @@ import { registerServiceRoutes } from "./modules/service-categories/services.rou
 import { registerWorkerServiceRoutes } from "./modules/worker-services/worker-services.routes";
 import { registerBookingRoutes } from "./modules/bookings/bookings.routes";
 import { registerAllocationRoutes } from "./modules/allocation/allocation.routes";
-import jwtPlugin from "./plugins/jwt";
-import authPlugin from "./plugins/auth";
+import sessionAuthPlugin from "./plugins/session-auth";
 import { registerAuthRoutes } from "./modules/auth/auth.routes";
 import swaggerPlugin from "./plugins/swagger";
 import { registerRoutes } from "./routes";
 import { startAllocationRecoveryWorker } from "./modules/allocation/allocation-recovery.worker";
+import { registerDistributedRateLimits } from "./config/rate-limit";
 
 function parseTrustProxy(value: string): boolean | number | string {
   if (value === "false") return false;
@@ -54,22 +54,19 @@ export function buildApp() {
   });
 
   app.register(helmet);
+  app.register(cookie);
 
   app.register(cors, {
-    origin: env.CORS_ORIGIN,
+    origin: env.trustedWebOrigins,
     credentials: true,
   });
 
-  app.register(jwtPlugin);
-  app.register(authPlugin);
-  app.register(rateLimit, {
-    global: false,
-  });
+  app.register(sessionAuthPlugin);
+  registerDistributedRateLimits(app);
 
   app.register(registerAuthRoutes, {
     prefix: "/v1/auth",
   });
-
 
   // Users Module
   app.register(registerUserRoutes, {
@@ -77,9 +74,8 @@ export function buildApp() {
   });
 
   app.register(registerWorkerRoutes, {
-  prefix: "/v1/workers",
+    prefix: "/v1/workers",
   });
- 
 
   app.register(registerServiceRoutes, {
     prefix: "/v1/service-categories",
@@ -94,12 +90,12 @@ export function buildApp() {
   });
 
   app.register(registerAllocationRoutes, {
-    prefix: "/v1/allocation"
+    prefix: "/v1/allocation",
   });
 
   app.register(swaggerPlugin);
 
   app.register(registerRoutes);
-  
+
   return app;
 }

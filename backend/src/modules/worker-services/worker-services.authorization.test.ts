@@ -5,6 +5,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { ServicesRepository } from "../service-categories/services.repository";
 import { WorkerServicesRepository } from "./worker-services.repository";
 import { registerWorkerServiceRoutes } from "./worker-services.routes";
+import type { RateLimitCounter } from "../../config/rate-limit";
 
 const app = Fastify();
 app.decorate("authenticate", async (request, reply) => {
@@ -15,7 +16,19 @@ app.decorate("authenticate", async (request, reply) => {
   }
   request.user = { userId, role } as AuthUser;
 });
-app.register(registerWorkerServiceRoutes, { prefix: "/v1/worker-services" });
+app.decorate("requireWorker", async (request, reply) => {
+  if (request.user.role !== "worker" && request.user.role !== "admin") {
+    reply.status(403).send({ message: "Forbidden" });
+  }
+});
+const testRateLimitCounter: RateLimitCounter = async () => ({
+  count: 1,
+  ttlMs: 60_000,
+});
+app.register(registerWorkerServiceRoutes, {
+  prefix: "/v1/worker-services",
+  rateLimitCounter: testRateLimitCounter,
+});
 
 describe("Worker-service route authorization", () => {
   const workerFind = vi.spyOn(WorkersRepository.prototype, "findWorkerByUserId");

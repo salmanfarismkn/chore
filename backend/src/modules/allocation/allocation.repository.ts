@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { db } from "../../db";
 
@@ -51,7 +51,10 @@ export class AllocationRepository {
         and(
           eq(workerServices.serviceCategoryId, serviceCategoryId),
           eq(workerServices.isActive, true),
-          eq(workerProfiles.status, "available")
+          eq(workerProfiles.status, "available"),
+          eq(workerProfiles.approvalStatus, "approved"),
+          isNull(workerProfiles.deletedAt),
+          eq(users.isActive, true),
         )
       );
   }

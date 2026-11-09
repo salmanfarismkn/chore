@@ -1,5 +1,12 @@
 # Pronto+ Backend Release Audit
 
+> Historical assessment: the process-local rate-limit findings below describe
+> the pre-A.9 implementation. Milestone A.9 replaces that store with
+> Redis-backed distributed counters; see
+> [FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md) and
+> [PRODUCTION_AUTH_ARCHITECTURE.md](PRODUCTION_AUTH_ARCHITECTURE.md) for the
+> current design and verification status.
+
 ## 2026-11-01 Security Hardening Update
 
 **Verdict:** **Security hardening partially complete; not verified release-ready.** The HTTP authorization gaps for user, worker, worker-service, and booking owner/role paths have been checked with focused route tests. Explicit rate limiting is implemented without a global limit. Docker was unavailable in the validation environment, so Redis/PostgreSQL-backed integration and concurrency verification remains infrastructure-blocked.

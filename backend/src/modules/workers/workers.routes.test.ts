@@ -5,26 +5,42 @@ import type { AuthUser } from "../auth/auth.types";
 import { registerWorkerRoutes } from "./workers.routes";
 import { WorkersRepository } from "./workers.repository";
 import { UsersRepository } from "../users/users.repository";
+import { AllocationOfferService } from "../allocation/allocation-offer.service";
+import type { RateLimitCounter } from "../../config/rate-limit";
+import {
+  InvalidWorkerApprovalTransitionError,
+  WorkerCannotDecideOwnApprovalError,
+} from "./workers.repository";
 
 const app = Fastify();
-app.decorate(
-  "authenticate",
-  async (request, reply) => {
-    const userId = Number(request.headers["x-user-id"]);
-    const role = request.headers["x-user-role"];
+app.decorate("authenticate", async (request, reply) => {
+  const userId = Number(request.headers["x-user-id"]);
+  const role = request.headers["x-user-role"];
 
-    if (
-      !Number.isInteger(userId) ||
-      (role !== "worker" && role !== "admin")
-    ) {
-      reply.status(401).send({ message: "Unauthorized" });
-      return;
-    }
-
-    request.user = { userId, role } as AuthUser;
+  if (
+    !Number.isInteger(userId) ||
+    (role !== "worker" && role !== "admin" && role !== "customer")
+  ) {
+    reply.status(401).send({ message: "Unauthorized" });
+    return;
   }
-);
-app.register(registerWorkerRoutes, { prefix: "/v1/workers" });
+
+  request.user = { userId, role } as AuthUser;
+});
+app.decorate("requireWorker", async (request, reply) => {
+  const role = request.user.role;
+  if (role !== "worker" && role !== "admin") {
+    reply.status(403).send({ message: "Forbidden" });
+  }
+});
+const testRateLimitCounter: RateLimitCounter = async () => ({
+  count: 1,
+  ttlMs: 60_000,
+});
+app.register(registerWorkerRoutes, {
+  prefix: "/v1/workers",
+  rateLimitCounter: testRateLimitCounter,
+});
 
 describe("Worker profile updates", () => {
   const profile = {
@@ -35,11 +51,10 @@ describe("Worker profile updates", () => {
     completedJobs: 10,
     latitude: null,
     longitude: null,
-    status: "available" as
-      | "offline"
-      | "available"
-      | "busy"
-      | "suspended",
+    status: "available" as "offline" | "available" | "busy" | "suspended",
+    approvalStatus: "pending" as "pending" | "approved" | "rejected",
+    approvalDecidedBy: null as number | null,
+    approvalDecidedAt: null as Date | null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -47,27 +62,59 @@ describe("Worker profile updates", () => {
 
   const findWorker = vi.spyOn(WorkersRepository.prototype, "findWorkerById");
   const updateWorker = vi.spyOn(WorkersRepository.prototype, "updateWorker");
-  const findAllWorkers = vi.spyOn(WorkersRepository.prototype, "findAllWorkers");
-  const findWorkerByUserId = vi.spyOn(WorkersRepository.prototype, "findWorkerByUserId");
+  const findAllWorkers = vi.spyOn(
+    WorkersRepository.prototype,
+    "findAllWorkers",
+  );
+  const findWorkerByUserId = vi.spyOn(
+    WorkersRepository.prototype,
+    "findWorkerByUserId",
+  );
   const createWorker = vi.spyOn(WorkersRepository.prototype, "createWorker");
   const deleteWorker = vi.spyOn(WorkersRepository.prototype, "deleteWorker");
+  const decideApproval = vi.spyOn(
+    WorkersRepository.prototype,
+    "decideApproval",
+  );
+  const revokeWorkerOffers = vi.spyOn(
+    AllocationOfferService.prototype,
+    "revokeWorkerOffers",
+  );
   const findUserById = vi.spyOn(UsersRepository.prototype, "findUserById");
 
   beforeEach(() => {
     profile.bio = "Original worker profile bio";
     profile.status = "available";
+    profile.approvalStatus = "pending";
+    profile.approvalDecidedBy = null;
+    profile.approvalDecidedAt = null;
     findWorker.mockClear();
     updateWorker.mockClear();
     findAllWorkers.mockReset();
     findWorkerByUserId.mockReset();
     createWorker.mockReset();
     deleteWorker.mockReset();
+    decideApproval.mockReset();
+    revokeWorkerOffers.mockReset();
     findUserById.mockReset();
     findAllWorkers.mockResolvedValue([profile] as never);
     findWorkerByUserId.mockResolvedValue(null as never);
     findUserById.mockResolvedValue({ id: 101, role: "worker" } as never);
     createWorker.mockResolvedValue(profile as never);
     deleteWorker.mockResolvedValue(profile as never);
+    decideApproval.mockImplementation(
+      async (_id, approvalStatus, decidedBy) => {
+        profile.approvalStatus = approvalStatus;
+        profile.approvalDecidedBy = decidedBy;
+        profile.approvalDecidedAt = new Date();
+        return {
+          worker: profile as never,
+          changed: true,
+          previousStatus: "pending" as const,
+        };
+      },
+    );
+    revokeWorkerOffers.mockResolvedValue(0);
     findWorker.mockImplementation(async () => profile);
     updateWorker.mockImplementation(async (_id, data) => {
       Object.assign(profile, data);
@@ -111,8 +158,144 @@ describe("Worker profile updates", () => {
     });
     expect(deniedList.statusCode).toBe(403);
 
-    expect((await app.inject({ method: "POST", url: "/v1/workers", payload: { userId: 101, bio: "A valid worker profile biography" } })).statusCode).toBe(401);
-    expect((await app.inject({ method: "GET", url: "/v1/workers" })).statusCode).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/v1/workers",
+          payload: { userId: 101, bio: "A valid worker profile biography" },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/workers" })).statusCode,
+    ).toBe(401);
+  });
+
+  it("defaults new profiles to pending and does not accept approval state from callers", async () => {
+    const creation = await app.inject({
+      method: "POST",
+      url: "/v1/workers",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: {
+        userId: 101,
+        bio: "A valid worker profile biography",
+        approvalStatus: "approved",
+      },
+    });
+
+    expect(creation.statusCode).toBe(400);
+    expect(createWorker).not.toHaveBeenCalled();
+
+    const update = await app.inject({
+      method: "PATCH",
+      url: "/v1/workers/20",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { approvalStatus: "approved" },
+    });
+    expect(update.statusCode).toBe(400);
+    expect(updateWorker).not.toHaveBeenCalled();
+
+    createWorker.mockResolvedValueOnce(profile as never);
+    const defaulted = await app.inject({
+      method: "POST",
+      url: "/v1/workers",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { userId: 101, bio: "A valid worker profile biography" },
+    });
+    expect(defaulted.statusCode).toBe(201);
+    expect(defaulted.json().approvalStatus).toBe("pending");
+  });
+
+  it("allows only admins to decide approval and prevents worker self-approval", async () => {
+    const customer = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "44", "x-user-role": "customer" },
+      payload: { approvalStatus: "approved" },
+    });
+    const worker = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "101", "x-user-role": "worker" },
+      payload: { approvalStatus: "approved" },
+    });
+    expect(customer.statusCode).toBe(403);
+    expect(worker.statusCode).toBe(403);
+    expect(decideApproval).not.toHaveBeenCalled();
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { approvalStatus: "pending" },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const approved = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: {
+        approvalStatus: "approved",
+        reason: "Identity and onboarding documents reviewed",
+      },
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().approvalStatus).toBe("approved");
+    expect(approved.json().approvalDecidedBy).toBe(1);
+    expect(decideApproval).toHaveBeenCalledWith(
+      20,
+      "approved",
+      1,
+      "Identity and onboarding documents reviewed",
+    );
+
+    const invalidReason = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { approvalStatus: "rejected", reason: " " },
+    });
+    expect(invalidReason.statusCode).toBe(400);
+
+    decideApproval.mockRejectedValueOnce(
+      new WorkerCannotDecideOwnApprovalError(),
+    );
+    const self = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "101", "x-user-role": "admin" },
+      payload: { approvalStatus: "approved" },
+    });
+    expect(self.statusCode).toBe(403);
+  });
+
+  it("rejects invalid transitions and revokes offers after rejection", async () => {
+    decideApproval.mockRejectedValueOnce(
+      new InvalidWorkerApprovalTransitionError("rejected", "approved"),
+    );
+    const invalidTransition = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { approvalStatus: "approved" },
+    });
+    expect(invalidTransition.statusCode).toBe(409);
+
+    decideApproval.mockResolvedValueOnce({
+      worker: { ...profile, approvalStatus: "rejected" } as never,
+      changed: true,
+      previousStatus: "approved",
+    });
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/v1/workers/20/approval",
+      headers: { "x-user-id": "1", "x-user-role": "admin" },
+      payload: { approvalStatus: "rejected" },
+    });
+    expect(rejected.statusCode).toBe(200);
+    expect(revokeWorkerOffers).toHaveBeenCalledWith(101);
   });
 
   it("allows owner/admin worker deletion and rejects other workers", async () => {
@@ -160,7 +343,9 @@ describe("Worker profile updates", () => {
     });
     expect(denied.statusCode).toBe(403);
 
-    expect((await app.inject({ method: "GET", url: "/v1/workers/20" })).statusCode).toBe(401);
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/workers/20" })).statusCode,
+    ).toBe(401);
   });
 
   it("rejects worker status changes while allowing profile bio edits", async () => {
