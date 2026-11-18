@@ -1022,6 +1022,46 @@ exact outcomes, and remaining blockers. The A.10 recommendation is **NO-GO**
 until cross-replica offer delivery and bounded dependency failure behavior are
 addressed and the real deployment topology is validated.
 
+### A.10.1 — Reliability corrections
+
+A.10.1 corrected the two local failures above. Socket.IO now uses
+`@socket.io/redis-adapter` with separate Redis publisher and subscriber clients
+per backend process. Backend startup waits for these connections and readiness
+includes adapter state. Offer creation/emission fails closed when the local
+adapter is unavailable. Redis Pub/Sub does not provide exactly-once delivery:
+events can be missed while a subscriber is disconnected, and a successful
+publish does not confirm delivery to every worker. Existing offer generations,
+expiry, and acceptance checks remain authoritative; Socket.IO is not a durable
+notification queue.
+
+PostgreSQL connection/query settings are a 3-second connection timeout, pool
+maximum 10 per process, 6-second statement timeout, 2-second lock timeout,
+10-second idle-transaction timeout, and an 8-second application query deadline.
+Redis uses a 2.5-second connect timeout and a 3-second command timeout,
+bounded 1–5-second reconnect backoff, disabled offline command queue, and a
+3-second application deadline for distributed rate-limit operations. Readiness
+bounds Redis `PING` at 3.5 seconds and reports unavailable dependencies without
+exposing endpoint details. Redis and PostgreSQL operations fail closed; no
+process-local session, rate-limit, OIDC, or allocation fallback was added.
+No socket-idle timeout is configured, avoiding forced disconnects of healthy
+idle Redis connections.
+
+With two independent processes and fresh isolated PostgreSQL/Redis, a worker
+connected to B received the offer from A in 107.9 ms, while an unrelated worker
+received none. Multiple connections and reconnect/final-disconnect behavior
+were exercised; after final disconnect, the revoked offer was rejected.
+PostgreSQL partition probes returned generic 503 in 8,008.6 ms (`/ready`) and
+8,013.2 ms (authenticated request). Redis probes returned 503 in 3,509.6 ms
+and 3,008.7 ms respectively. Both dependencies recovered without backend
+restart, and the authenticated requests returned 200 afterward. The gated
+test command and full verification evidence are in
+[FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md).
+
+These are local failure-injection results, not production tuning or failover
+certification. Real Auth0, trusted TLS ingress, Redis persistence/eviction and
+data loss, PostgreSQL backup/restore/failover, production Node 22 runtime, and
+load/resource capacity remain NOT VERIFIED.
+
 ## 10. Risks and mitigations
 
 | Risk                                                 | Mitigation                                                                                                       |

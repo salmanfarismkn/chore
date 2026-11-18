@@ -3,6 +3,9 @@ import { sql } from "drizzle-orm";
 
 import { db } from "../../db";
 import { redis } from "../../config/redis";
+import { isRealtimeReady } from "../../realtime/socket";
+
+const REDIS_READINESS_TIMEOUT_MS = 3_500;
 
 export async function registerHealthRoutes(server: FastifyInstance) {
   server.get("/", async () => {
@@ -16,18 +19,36 @@ export async function registerHealthRoutes(server: FastifyInstance) {
 
   server.get("/ready", async (request, reply) => {
     try {
-      await db.execute(sql`SELECT 1`);
-
       if (!redis.isReady) {
         throw new Error("Redis is not ready");
       }
 
-      await redis.ping();
+      let timeout: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          redis.ping(),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error("Redis readiness probe timed out")),
+              REDIS_READINESS_TIMEOUT_MS,
+            );
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+
+      if (!isRealtimeReady()) {
+        throw new Error("Realtime adapter is not ready");
+      }
+
+      await db.execute(sql`SELECT 1`);
 
       return {
         status: "ready",
         database: "ok",
         redis: "ok",
+        realtime: "ok",
       };
     } catch (error) {
       request.log.error(error, "Readiness check failed");

@@ -6,6 +6,7 @@ import { BookingsRepository } from "../bookings/bookings.repository";
 import type { AuthUser } from "../auth/auth.types";
 import { parsePositiveInteger } from "../../shared/validators/positive-integer";
 import { z } from "zod";
+import { DependencyUnavailableError } from "../../shared/core/errors/dependency-unavailable-error";
 import {
   createDistributedRateLimitPreHandler,
   RATE_LIMIT_POLICIES,
@@ -134,6 +135,9 @@ export async function registerAllocationRoutes(app: FastifyInstance) {
 
         return reply.status(200).send(accepted);
       } catch (error) {
+        if (error instanceof DependencyUnavailableError) {
+          throw error;
+        }
         const message =
           error instanceof Error ? error.message : "Assignment failed";
 
