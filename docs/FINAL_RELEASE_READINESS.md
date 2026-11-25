@@ -827,3 +827,112 @@ replicas until cross-process offer notifications are delivered, Redis and
 PostgreSQL operations fail within explicit bounded deadlines, and the real
 Auth0, ingress/TLS, persistence, and recovery topology is validated. The
 migration startup lock is verified but does not mitigate those blockers.
+
+## Milestone A.10.1 — Reliability corrections and validation
+
+A.10.1 supersedes the two A.10 failure findings above for the tested local
+topology. It does not change the overall production recommendation: live
+Auth0, ingress/TLS, Redis persistence/failover, PostgreSQL backup/failover,
+production runtime, and load/resource capacity remain NOT VERIFIED.
+
+### Isolated topology
+
+Validation used newly created Docker CLI resources (not Compose and not the
+shared development stack). No existing containers or volumes were reused.
+Containers were attached only to `pronto-a101-validation-net`; host ports were
+published to loopback. The disposable resources were:
+
+| Resource | Name / ID / endpoint |
+| -------- | -------------------- |
+| PostgreSQL | `pronto-a101-validation-postgres`; container `b9496e3ae687aef2f3cbcac112b62eb69b2ade4ffc6fe79f440407e823d3e413`; `127.0.0.1:25496/pronto_a101` |
+| Redis | `pronto-a101-validation-redis`; container `f954f77b210c3bf1c6bfa5464998b5e57e329eecb347a90e770be5e9e1474608`; `127.0.0.1:26396` |
+| Network | `pronto-a101-validation-net`; ID `4b9b9fc8c97c90895df4b7c1c4ebb77eeaadc56a6fed7acde10f461611634761` |
+| PostgreSQL volume | `pronto-a101-validation-pgdata` |
+| Redis volume | `pronto-a101-validation-redisdata` |
+
+Both services used fresh `postgres:16-alpine` / `redis:7-alpine` storage. The
+complete 16-migration chain was applied to the empty database. Two separate
+Node/tsx backend processes used distinct ports and the same PostgreSQL/Redis
+services. Test credentials and the `.invalid` Auth0 issuer were isolated from
+production. The containers and named volumes were retained after verification.
+
+### Corrections and observed semantics
+
+- The cross-replica delivery root cause was the absence of a Socket.IO adapter:
+  Redis-backed offer data did not distribute Socket.IO room broadcasts. The
+  backend now uses the maintained `@socket.io/redis-adapter`, with a distinct
+  publisher and subscriber client per process. Startup waits for both adapter
+  connections; `/ready` includes adapter state. Offer creation/emission fails
+  closed when the local adapter is unavailable.
+- Redis pub/sub is not exactly-once. Socket.IO adapter messages are
+  at-most-once across the Redis Pub/Sub transport: a disconnected subscriber
+  can miss an event, and a successful publish does not prove every remote
+  worker received it. Offers remain fenced by the existing generation and
+  expiry checks; notification is not a durable queue.
+- PostgreSQL now uses a per-process pool maximum of 10, 3-second connection
+  establishment bound, 6-second statement timeout, 2-second lock timeout,
+  10-second idle-transaction timeout, and an 8-second application query/pool
+  wait deadline. On timeout, the request fails with generic HTTP 503; query
+  cancellation is requested asynchronously so cancellation cannot delay the
+  response. The post-recovery check found zero active or idle-in-transaction
+  `pronto-backend` queries.
+- Redis uses a 2.5-second connect timeout, a 3-second command timeout, a
+  1–5-second capped reconnect backoff, a 1,000-command queue cap, and no
+  offline command queue. The distributed rate-limit Lua operation has an
+  explicit 3-second application deadline. `/ready` bounds `PING` at 3.5
+  seconds and reports a generic 503. No socket-idle timeout is configured, so
+  healthy idle connections are not intentionally closed. No process-local
+  fallback is used.
+- A Redis timeout does not prove that the server did not execute a command
+  whose reply was lost. The application does not retry such a command
+  automatically; callers fail closed and retain existing idempotency,
+  generation, and reconciliation protections.
+
+### A.10.1 verification
+
+The gated integration test launched two independent backend processes,
+connected two authenticated sockets for one approved worker and one unrelated
+worker to replica B, and created an offer through replica A. Both intended
+connections received exactly one event, the unrelated worker received none,
+and measured client-side delivery was 107.9 ms. Killing both Redis Pub/Sub
+connections and waiting for both replicas to become ready demonstrated
+reconnection and subsequent cross-replica delivery. Final disconnect revoked
+the offer; acceptance of that stale/revoked offer returned false.
+
+Controlled network isolation disconnected only the named disposable container
+from its dedicated Docker network, then reattached it. Measured response times:
+
+| Failure / probe | Result and measured response | Configured bound |
+| --------------- | ---------------------------- | ---------------- |
+| PostgreSQL `/ready` | PASS; 503 in 8,008.6 ms | 8-second query deadline; under 10-second test bound |
+| PostgreSQL authenticated `/v1/users` | PASS; generic 503 in 8,013.2 ms | 8-second query deadline; under 10-second test bound |
+| Redis `/ready` | PASS; 503 in 3,509.6 ms | 3.5-second probe deadline; under 4.5-second test bound |
+| Redis authenticated `/v1/users` | PASS; generic 503 in 3,008.7 ms | 3-second command deadline; under 4.5-second test bound |
+| PostgreSQL recovery | PASS; readiness and authenticated request returned 200 after reattachment | Recovery wait capped at 15 seconds |
+| Redis recovery | PASS; readiness and authenticated request returned 200 after reattachment | Recovery wait capped at 15 seconds |
+
+Exact relevant commands:
+
+```text
+pnpm exec vitest run src/realtime/socket.multi-instance.integration.test.ts --reporter=dot
+pnpm exec vitest run --reporter=dot
+pnpm exec tsc --noEmit
+pnpm build
+pnpm check-types
+git diff --check
+```
+
+The gated A.10.1 integration command passed (2 tests). The full backend suite passed 27 files / 217 tests; 4 files / 10 tests were
+skipped by existing conditions. The focused A.3–A.9 regression batch passed
+23 files / 198 tests; 2 files / 4 tests were skipped by existing conditions.
+Backend type-check, workspace build/type-check, and `drizzle-kit check`
+passed. Both development and production Compose files passed
+`docker compose ... config --quiet` using non-production test interpolation
+values; no Compose services were started. `git diff --check` passed.
+
+**A.10.1 local reliability result: PASS for the exercised scenarios.**
+Production release recommendation remains **NO-GO** because the real Auth0
+tenant and ingress, Redis persistence/failover and data-loss behavior,
+PostgreSQL backup/restore and failover, Node 22 production runtime, process
+termination during transitions, pool exhaustion, and realistic load/resource
+behavior remain NOT VERIFIED.

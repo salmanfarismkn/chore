@@ -3,6 +3,7 @@ import { db } from "../../db";
 import { bookings, users, workerProfiles } from "../../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { emitWorkerOffer } from "../../realtime/allocation-events";
+import { assertRealtimeReady } from "../../realtime/socket";
 import { AllocationLockService } from "./allocation-lock.service";
 import { AllocationFence, AllocationFenceError } from "./allocation-fence";
 
@@ -18,7 +19,7 @@ type ReconciliationStatus =
 export class AllocationOfferService {
   constructor(
     private readonly lockService = new AllocationLockService(),
-    private expirationTimers = new Map<number, NodeJS.Timeout>()
+    private expirationTimers = new Map<number, NodeJS.Timeout>(),
   ) {}
 
   private async isWorkerEligible(userId: number) {
@@ -42,10 +43,10 @@ export class AllocationOfferService {
 
   async createOffer(
     bookingId: number,
-    userId: number,   
+    userId: number,
     tier: string,
     ttlSeconds: number,
-    fence?: AllocationFence
+    fence?: AllocationFence,
   ) {
     if (!userId) {
       return {
@@ -55,7 +56,6 @@ export class AllocationOfferService {
         reason: "missing_user_id",
       };
     }
-
 
     if (!(await this.isWorkerEligible(userId))) {
       return {
@@ -84,9 +84,9 @@ export class AllocationOfferService {
       };
     }
 
-    const expiresAt = new Date(
-      Date.now() + ttlSeconds * 1000
-    );
+    assertRealtimeReady();
+
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
     if (fence) {
       const written = await redis.eval(
@@ -124,14 +124,14 @@ export class AllocationOfferService {
             fence.generation.toString(),
             ttlSeconds.toString(),
           ],
-        }
+        },
       );
 
       if (written !== 1) {
         throw new AllocationFenceError(
           bookingId,
           fence.generation,
-          "lease ownership changed before offer creation"
+          "lease ownership changed before offer creation",
         );
       }
     } else {
@@ -144,10 +144,7 @@ export class AllocationOfferService {
         status: "pending",
       });
 
-      await redis.sAdd(
-        `booking:${bookingId}:allocation:offers`,
-        offerKey
-      );
+      await redis.sAdd(`booking:${bookingId}:allocation:offers`, offerKey);
       await redis.sAdd(PENDING_OFFERS_INDEX, offerKey);
       await redis.sAdd(`worker:${userId}:offers:pending`, offerKey);
     }
@@ -162,7 +159,7 @@ export class AllocationOfferService {
         reason: "worker_not_eligible",
       };
     }
-    
+
     emitWorkerOffer({
       bookingId,
       offerId: offerKey,
@@ -171,7 +168,7 @@ export class AllocationOfferService {
       expiresAt: expiresAt.getTime(),
       generation,
     });
-    
+
     if (!fence) {
       await redis.expire(offerKey, ttlSeconds);
     }
@@ -208,7 +205,7 @@ export class AllocationOfferService {
     bookingId: number,
     tier: string,
     count: number,
-    fence: AllocationFence
+    fence: AllocationFence,
   ): Promise<void> {
     const result = await redis.eval(
       `
@@ -224,50 +221,50 @@ export class AllocationOfferService {
           `allocation:booking:${bookingId}:tier:${tier}:generation:${fence.generation}:remaining`,
         ],
         arguments: [fence.token, count.toString()],
-      }
+      },
     );
 
     if (result !== 1) {
       throw new AllocationFenceError(
         bookingId,
         fence.generation,
-        "lease ownership changed before tier state mutation"
+        "lease ownership changed before tier state mutation",
       );
     }
   }
 
   async reconcileBooking(
-        bookingId: number,
-        generation: number,
-        status: ReconciliationStatus
-      ): Promise<boolean> {
-        const offersKey = `booking:${bookingId}:allocation:offers`;
-        const indexedOfferKeys = await redis.sMembers(offersKey);
-        const discoveredOfferKeys: string[] = [];
-        for await (const batch of redis.scanIterator({
-          MATCH: `booking:${bookingId}:offer:*`,
-          COUNT: 100,
-        })) {
-          discoveredOfferKeys.push(...batch);
-        }
-        const offerKeys = [
-          ...new Set([...indexedOfferKeys, ...discoveredOfferKeys]),
-        ];
+    bookingId: number,
+    generation: number,
+    status: ReconciliationStatus,
+  ): Promise<boolean> {
+    const offersKey = `booking:${bookingId}:allocation:offers`;
+    const indexedOfferKeys = await redis.sMembers(offersKey);
+    const discoveredOfferKeys: string[] = [];
+    for await (const batch of redis.scanIterator({
+      MATCH: `booking:${bookingId}:offer:*`,
+      COUNT: 100,
+    })) {
+      discoveredOfferKeys.push(...batch);
+    }
+    const offerKeys = [
+      ...new Set([...indexedOfferKeys, ...discoveredOfferKeys]),
+    ];
 
-        for (const offerKey of offerKeys) {
-          const offer = await redis.hGetAll(offerKey);
-          if (!offer.bookingId) {
-            await redis.sRem(PENDING_OFFERS_INDEX, offerKey);
-            await redis.sRem(offersKey, offerKey);
-            continue;
-          }
-          if (Number(offer.generation) !== generation) {
-            continue;
-          }
+    for (const offerKey of offerKeys) {
+      const offer = await redis.hGetAll(offerKey);
+      if (!offer.bookingId) {
+        await redis.sRem(PENDING_OFFERS_INDEX, offerKey);
+        await redis.sRem(offersKey, offerKey);
+        continue;
+      }
+      if (Number(offer.generation) !== generation) {
+        continue;
+      }
 
-          const workerId = Number(offer.workerId);
-          const result = await redis.eval(
-            `
+      const workerId = Number(offer.workerId);
+      const result = await redis.eval(
+        `
             local offerGeneration = redis.call("HGET", KEYS[1], "generation")
             if offerGeneration ~= ARGV[1] then
               return 0
@@ -304,33 +301,33 @@ export class AllocationOfferService {
             redis.call("DEL", KEYS[5])
             return 1
             `,
-            {
-              keys: [
-                offerKey,
-                `booking:${bookingId}:allocation:winner`,
-                `booking:${bookingId}:allocation:lease`,
-                offersKey,
-                `allocation:booking:${bookingId}:tier:${offer.tier}:generation:${generation}:remaining`,
-                PENDING_OFFERS_INDEX,
-                `worker:${workerId}:offers:pending`,
-              ],
-              arguments: [
-                generation.toString(),
-                status,
-                workerId.toString(),
-                `${workerId}:${generation}`,
-              ],
-            }
-          );
+        {
+          keys: [
+            offerKey,
+            `booking:${bookingId}:allocation:winner`,
+            `booking:${bookingId}:allocation:lease`,
+            offersKey,
+            `allocation:booking:${bookingId}:tier:${offer.tier}:generation:${generation}:remaining`,
+            PENDING_OFFERS_INDEX,
+            `worker:${workerId}:offers:pending`,
+          ],
+          arguments: [
+            generation.toString(),
+            status,
+            workerId.toString(),
+            `${workerId}:${generation}`,
+          ],
+        },
+      );
 
-          if (status === "ALLOCATING" && result === 1) {
-            return true;
-          }
-        }
+      if (status === "ALLOCATING" && result === 1) {
+        return true;
+      }
+    }
 
-        if (status !== "ALLOCATING") {
-          await redis.eval(
-            `
+    if (status !== "ALLOCATING") {
+      await redis.eval(
+        `
             local winner = redis.call("GET", KEYS[1])
             if winner and string.sub(winner, -string.len(":" .. ARGV[1])) == ":" .. ARGV[1] then
               redis.call("DEL", KEYS[1])
@@ -341,33 +338,31 @@ export class AllocationOfferService {
             end
             return 1
             `,
-            {
-              keys: [
-                `booking:${bookingId}:allocation:winner`,
-                `booking:${bookingId}:allocation:lease`,
-              ],
-              arguments: [generation.toString()],
-            }
-          );
-          const counterKeys: string[] = [];
-          for await (const batch of redis.scanIterator({
-            MATCH: `allocation:booking:${bookingId}:tier:*:generation:${generation}:remaining`,
-            COUNT: 100,
-          })) {
-            counterKeys.push(...batch);
-          }
-          for (const counterKey of counterKeys) {
-            await redis.del(counterKey);
-          }
-        }
+        {
+          keys: [
+            `booking:${bookingId}:allocation:winner`,
+            `booking:${bookingId}:allocation:lease`,
+          ],
+          arguments: [generation.toString()],
+        },
+      );
+      const counterKeys: string[] = [];
+      for await (const batch of redis.scanIterator({
+        MATCH: `allocation:booking:${bookingId}:tier:*:generation:${generation}:remaining`,
+        COUNT: 100,
+      })) {
+        counterKeys.push(...batch);
+      }
+      for (const counterKey of counterKeys) {
+        await redis.del(counterKey);
+      }
+    }
 
-        return status !== "ALLOCATING";
+    return status !== "ALLOCATING";
   }
 
   async revokeWorkerOffers(workerId: number): Promise<number> {
-    const offerKeys = await redis.sMembers(
-      `worker:${workerId}:offers:pending`
-    );
+    const offerKeys = await redis.sMembers(`worker:${workerId}:offers:pending`);
     let revoked = 0;
 
     for (const offerKey of offerKeys) {
@@ -395,7 +390,7 @@ export class AllocationOfferService {
       }
 
       const result = await redis.eval(
-          `
+        `
           if redis.call("HGET", KEYS[1], "workerId") ~= ARGV[1] then
             return 0
           end
@@ -411,19 +406,19 @@ export class AllocationOfferService {
           redis.call("SREM", KEYS[4], KEYS[1])
           return 1
           `,
-          {
-            keys: [
-              offerKey,
-              offersKey,
-              PENDING_OFFERS_INDEX,
-              `worker:${workerId}:offers:pending`,
-            ],
-            arguments: [
-              workerId.toString(),
-              booking.allocationGeneration.toString(),
-            ],
-          }
-        );
+        {
+          keys: [
+            offerKey,
+            offersKey,
+            PENDING_OFFERS_INDEX,
+            `worker:${workerId}:offers:pending`,
+          ],
+          arguments: [
+            workerId.toString(),
+            booking.allocationGeneration.toString(),
+          ],
+        },
+      );
 
       if (result === 1) {
         revoked += 1;
@@ -449,11 +444,7 @@ export class AllocationOfferService {
     }
 
     const offerKey = `booking:${bookingId}:offer:${workerId}`;
-    await redis.hSet(
-      offerKey,
-      "status",
-      "rejected"
-    );
+    await redis.hSet(offerKey, "status", "rejected");
 
     await redis.sRem(PENDING_OFFERS_INDEX, offerKey);
     await redis.sRem(`worker:${workerId}:offers:pending`, offerKey);
@@ -466,7 +457,7 @@ export class AllocationOfferService {
   private async expireOffer(
     bookingId: number,
     workerId: number,
-    generation: number
+    generation: number,
   ) {
     const offerKey = `booking:${bookingId}:offer:${workerId}`;
     const lockKey = `booking:${bookingId}:allocation:winner`;
@@ -517,7 +508,7 @@ export class AllocationOfferService {
           `booking:${bookingId}:allocation:offers`,
         ],
         arguments: [workerId.toString(), generation.toString()],
-      }
+      },
     );
 
     if (result !== 1) {
@@ -529,12 +520,9 @@ export class AllocationOfferService {
     return true;
   }
 
-  async hasActiveOffers(
-    bookingId: number,
-    tier: number
-  ): Promise<boolean> {
+  async hasActiveOffers(bookingId: number, tier: number): Promise<boolean> {
     const offerKeys = await redis.sMembers(
-      `booking:${bookingId}:allocation:offers`
+      `booking:${bookingId}:allocation:offers`,
     );
 
     for (const offerKey of offerKeys) {
@@ -548,10 +536,7 @@ export class AllocationOfferService {
       }
 
       if (offer.status !== "pending") {
-        await redis.sRem(
-          `booking:${bookingId}:allocation:offers`,
-          offerKey
-        );
+        await redis.sRem(`booking:${bookingId}:allocation:offers`, offerKey);
         const workerId = Number(offer.workerId);
         await redis.sRem(PENDING_OFFERS_INDEX, offerKey);
         await redis.sRem(`worker:${workerId}:offers:pending`, offerKey);
@@ -575,18 +560,11 @@ export class AllocationOfferService {
       const bookingId = Number(bookingIdValue);
       const workerId = Number(workerIdValue);
       const generation = Number(offer.generation);
-      const expired = await this.expireOffer(
-        bookingId,
-        workerId,
-        generation
-      );
+      const expired = await this.expireOffer(bookingId, workerId, generation);
 
       if (expired) {
         expiredBookings.add(bookingId);
-        await redis.sRem(
-          `booking:${bookingId}:allocation:offers`,
-          offerKey
-        );
+        await redis.sRem(`booking:${bookingId}:allocation:offers`, offerKey);
       }
     }
 

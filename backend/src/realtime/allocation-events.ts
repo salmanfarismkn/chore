@@ -1,4 +1,4 @@
-import { getSocketIO } from "./socket";
+import { assertRealtimeReady, getSocketIO } from "./socket";
 
 export interface WorkerOfferEvent {
   bookingId: number;
@@ -9,13 +9,9 @@ export interface WorkerOfferEvent {
   generation: number;
 }
 
-export function emitWorkerOffer(
-  event: WorkerOfferEvent
-) {
+export function emitWorkerOffer(event: WorkerOfferEvent) {
+  assertRealtimeReady();
   const io = getSocketIO();
 
-  io.to(`worker:${event.workerId}`).emit(
-    "booking:offer",
-    event
-  );
+  io.to(`worker:${event.workerId}`).emit("booking:offer", event);
 }

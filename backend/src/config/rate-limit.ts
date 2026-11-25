@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { env } from "./env";
-import { redis } from "./redis";
+import { redis, withRedisCommandTimeout } from "./redis";
 
 export interface RateLimitPolicy {
   name: string;
@@ -58,10 +58,12 @@ export function createRedisRateLimitCounter(
 
 export const sharedRateLimitCounter = createRedisRateLimitCounter(
   (script, key, windowMs) =>
-    redis.eval(script, {
-      keys: [key],
-      arguments: [String(windowMs)],
-    }),
+    withRedisCommandTimeout(
+      redis.eval(script, {
+        keys: [key],
+        arguments: [String(windowMs)],
+      }),
+    ),
   () => redis.isReady,
 );
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const emit = vi.fn();
 
 vi.mock("./socket", () => ({
+  assertRealtimeReady: vi.fn(),
   getSocketIO: () => ({
     to: () => ({ emit }),
   }),
@@ -27,7 +28,7 @@ describe("worker offer notifications", () => {
         bookingId: 7,
         offerId: "booking:7:offer:42",
         generation: 3,
-      })
+      }),
     );
   });
 });

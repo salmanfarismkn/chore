@@ -22,6 +22,7 @@
     "@fastify/sensible": "^6.0.4",
     "@fastify/swagger": "^9.8.1",
     "@fastify/swagger-ui": "^6.1.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dayjs": "^1.11.21",

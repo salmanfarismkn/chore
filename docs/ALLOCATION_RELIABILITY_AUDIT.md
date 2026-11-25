@@ -899,3 +899,41 @@ marketplace readiness is **NO-GO** until cross-process notification and
 dependency-failure behavior are addressed. See
 [FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md) for the full A.10
 topology, test outcomes, and remaining deployment blockers.
+
+## A.10.1 — Cross-replica delivery and dependency failure correction
+
+The Socket.IO delivery root cause was missing distributed room/event
+publication: offer state was shared in Redis, but broadcasts used process-local
+Socket.IO rooms. The backend now installs the Redis adapter using separate
+publisher and subscriber connections for each replica. Startup waits for both;
+readiness reports adapter availability, and offer creation/emission rejects
+when the local adapter is unavailable. The allocation state machine and
+generation fences were not redesigned for this correction.
+
+In the isolated two-process test, an approved worker with two connections on
+replica B received one offer event published by replica A in 107.9 ms. An
+unrelated worker received none. The test killed both Pub/Sub connections,
+waited for readiness recovery, then demonstrated subsequent delivery. It also
+verified reconnect/final disconnect and that a revoked offer could not be
+accepted. Redis Pub/Sub remains at-most-once: a subscriber can miss a push
+during disconnection, and publication does not prove client receipt. Durable
+offer state, expiry, generation validation, and reconciliation remain the
+recovery mechanisms; do not describe notifications as exactly-once or durable.
+
+The same A.10.1 run partitioned only the isolated PostgreSQL and Redis
+containers. PostgreSQL readiness/protected requests failed with HTTP 503 in
+8,008.6/8,013.2 ms under an 8-second application query deadline. Redis
+readiness/protected requests failed with HTTP 503 in 3,509.6/3,008.7 ms under
+3.5-second readiness and 3-second command deadlines. The services were
+reattached; both returned ready and authenticated requests succeeded without
+restarting backend processes. A PostgreSQL activity query found no remaining
+active or idle-in-transaction work from the backend after recovery.
+Redis has a 3-second command timeout and explicit application deadlines for
+distributed rate-limit operations and readiness probes; no socket-idle timeout
+is set, avoiding forced disconnects of healthy idle connections.
+
+These results validate only the injected network interruption and recovery
+path. Redis data loss/failover, PostgreSQL failover/restore, pool exhaustion,
+process death during an allocation transition, production ingress, and load
+remain NOT VERIFIED. Full topology, exact commands, and suite outcomes are in
+[FINAL_RELEASE_READINESS.md](FINAL_RELEASE_READINESS.md).

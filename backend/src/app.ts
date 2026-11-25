@@ -6,7 +6,7 @@ import cookie from "@fastify/cookie";
 
 import { env } from "./config/env";
 import { connectRedis } from "./config/redis";
-import { initializeSocket } from "./realtime/socket";
+import { closeSocket, initializeSocket } from "./realtime/socket";
 
 import { registerHealthRoutes } from "./modules/health/health.routes";
 import { registerUserRoutes } from "./modules/users/users.routes";
@@ -45,12 +45,13 @@ export function buildApp() {
 
   app.addHook("onReady", async () => {
     await connectRedis();
-    initializeSocket(app.server, app);
+    await initializeSocket(app.server, app);
     stopAllocationRecoveryWorker = startAllocationRecoveryWorker();
   });
 
   app.addHook("onClose", async () => {
     stopAllocationRecoveryWorker?.();
+    await closeSocket();
   });
 
   app.register(helmet);

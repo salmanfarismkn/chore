@@ -1,7 +1,7 @@
 import { buildApp } from "./app";
 import { env } from "./config/env";
-import { initializeSocket } from "./realtime/socket";
 import { redis } from "./config/redis";
+import { closeDatabase } from "./db";
 
 const app = buildApp();
 
@@ -12,20 +12,18 @@ const start = async () => {
       host: "0.0.0.0",
     });
 
-    const io = initializeSocket(app.server, app);
-
     const shutdown = async (signal: string) => {
       app.log.info(`Received ${signal}. Shutting down...`);
 
       try {
-        // Stop accepting new HTTP connections
         await app.close();
-
-        // Close Socket.IO connections
-        io.close();
-
-        // Close Redis connection
-        await redis.quit();
+        try {
+          if (redis.isOpen) {
+            await redis.quit();
+          }
+        } finally {
+          await closeDatabase();
+        }
 
         app.log.info("Graceful shutdown completed");
 
